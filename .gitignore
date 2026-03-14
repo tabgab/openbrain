@@ -1,0 +1,49 @@
+# ========================
+# Open Brain .gitignore
+# ========================
+
+# --- Secrets & Environment ---
+.env
+*.pem
+*.key
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+.eggs/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# --- Node / Frontend ---
+ui/node_modules/
+ui/dist/
+ui/.vite/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# --- IDE ---
+.vscode/
+.idea/
+*.code-workspace
+.windsurf/
+
+# --- Docker ---
+openbrain-db-data/
+
+# --- Misc ---
+*.log
+*.tmp
+*.bak
+_Gemini*
