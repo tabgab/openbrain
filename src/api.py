@@ -486,6 +486,26 @@ def google_status():
     from google_integration import get_status
     return get_status()
 
+@app.post("/api/google/credentials/upload")
+async def google_credentials_upload(file: UploadFile = File(...)):
+    """Upload a Google OAuth credentials JSON file (any filename)."""
+    try:
+        content = await file.read()
+        data = json.loads(content)
+        # Validate it looks like a Google OAuth credentials file
+        if "web" not in data and "installed" not in data:
+            raise HTTPException(status_code=400, detail="Invalid credentials file. Must contain 'web' or 'installed' key from Google Cloud Console.")
+        from google_integration import _CREDENTIALS_FILE
+        _CREDENTIALS_FILE.write_bytes(content)
+        add_event("success", "google", f"Google credentials uploaded ({file.filename})")
+        return {"success": True, "filename": file.filename}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="File is not valid JSON.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/google/connect")
 def google_connect():
     """Start Google OAuth flow. Returns the auth URL."""

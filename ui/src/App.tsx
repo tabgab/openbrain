@@ -1127,9 +1127,27 @@ function GoogleIntegrationSection() {
         </button>
       </div>
 
-      {!hasCreds && !accounts.length && (
-        <div style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#f59e0b' }}>
-          <strong>google_credentials.json</strong> not found. Click <strong>Setup Guide</strong> below for instructions.
+      {!hasCreds && (
+        <div style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span>No credentials file loaded.</span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', background: 'rgba(245,158,11,0.2)', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
+            <Upload size={13} /> Upload credentials JSON
+            <input type="file" accept=".json,application/json" hidden onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              const form = new FormData();
+              form.append('file', f);
+              try {
+                await axios.post(`${API}/google/credentials/upload`, form);
+                setHasCreds(true);
+                setMsg({ ok: true, text: `Credentials uploaded (${f.name}). You can now Add Account.` });
+              } catch (err: any) {
+                setMsg({ ok: false, text: err?.response?.data?.detail || 'Upload failed' });
+              }
+              e.target.value = '';
+            }} />
+          </label>
+          <span style={{ fontSize: '0.78rem', opacity: 0.8 }}>Download from Google Cloud Console → Clients → download icon</span>
         </div>
       )}
 
@@ -1163,8 +1181,8 @@ function GoogleIntegrationSection() {
                 <li>Click <strong>Create</strong></li>
               </ul>
             </li>
-            <li>Click <strong>Download JSON</strong> (or use the download icon next to the client) &mdash; save the file as <code>google_credentials.json</code> in the Open Brain project root folder</li>
-            <li>Restart the backend, then click <strong>Add Account</strong> above</li>
+            <li>Click <strong>Download JSON</strong> (or use the download icon next to the client) &mdash; then use the <strong>Upload credentials JSON</strong> button above to upload it (any filename works)</li>
+            <li>Click <strong>Add Account</strong> above to connect your first Google account</li>
           </ol>
           <div style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
             <strong>Note:</strong> One <code>google_credentials.json</code> works for all your Google accounts. It identifies the app, not the user. Each account you connect gets its own separate token. To add more accounts, just make sure each email is listed as a test user in the consent screen.
