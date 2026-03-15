@@ -502,34 +502,43 @@ def preview_gmail_message(email: str, message_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _extract_email_body(payload: dict) -> str:
-    """Recursively extract text body from Gmail message payload."""
-    mime = payload.get("mimeType", "")
-    body_data = payload.get("body", {}).get("data")
+    """Recursively extract text body from Gmail message payload.
 
-    if mime == "text/plain" and body_data:
-        return base64.urlsafe_b64decode(body_data).decode("utf-8", errors="replace")
+    Traverses the entire MIME tree, collecting all text/plain and text/html
+    parts, then returns plain text (preferred) or HTML-stripped text.
+    """
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
 
-    parts = payload.get("parts", [])
-    plain_text = ""
-    html_text = ""
-    for part in parts:
-        part_mime = part.get("mimeType", "")
-        part_data = part.get("body", {}).get("data")
-        if part_mime == "text/plain" and part_data:
-            plain_text += base64.urlsafe_b64decode(part_data).decode("utf-8", errors="replace")
-        elif part_mime == "text/html" and part_data:
-            html_text += base64.urlsafe_b64decode(part_data).decode("utf-8", errors="replace")
-        elif "multipart" in part_mime:
-            nested = _extract_email_body(part)
-            if nested:
-                plain_text += nested
+    def _walk(node: dict):
+        mime = node.get("mimeType", "")
+        body_data = node.get("body", {}).get("data")
+        parts = node.get("parts", [])
 
-    if plain_text:
-        return plain_text
+        if body_data:
+            decoded = base64.urlsafe_b64decode(body_data).decode("utf-8", errors="replace")
+            if mime == "text/plain":
+                plain_parts.append(decoded)
+            elif mime == "text/html":
+                html_parts.append(decoded)
 
-    if html_text:
-        text = re.sub(r"<[^>]+>", " ", html_text)
-        text = re.sub(r"\s+", " ", text).strip()
+        for part in parts:
+            _walk(part)
+
+    _walk(payload)
+
+    if plain_parts:
+        return "\n".join(plain_parts)
+
+    if html_parts:
+        combined = "\n".join(html_parts)
+        text = re.sub(r"<style[^>]*>.*?</style>", "", combined, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"</(p|div|tr|li|h[1-6])>", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
         return text
 
     return ""

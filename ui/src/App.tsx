@@ -1244,6 +1244,11 @@ function GoogleIntegrationSection() {
                   {driveSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Search
                 </button>
               </div>
+              {driveSearching && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <Loader2 size={16} className="animate-spin" color="var(--accent)" /> Searching Google Drive...
+                </div>
+              )}
               {driveFiles.length > 0 && (
                 <div style={{ maxHeight: '250px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -1298,6 +1303,11 @@ function GoogleIntegrationSection() {
                   {gmailSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Search
                 </button>
               </div>
+              {gmailSearching && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <Loader2 size={16} className="animate-spin" color="var(--accent)" /> Searching Gmail...
+                </div>
+              )}
               {gmailMsgs.length > 0 && (
                 <div style={{ maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
