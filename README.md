@@ -16,7 +16,9 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **MCP Server** — Full Model Context Protocol support (stdio + SSE) so other AI systems can use your brain as a tool
 - **PII Scrubbing** — Automatic detection and redaction of secrets, API keys, credit cards, SSNs
 - **Secure Vault** — Sensitive information stored separately, never exposed in search results
-- **Web Dashboard** — Beautiful React UI for browsing memories, uploading documents, configuring models, and viewing logs
+- **Dashboard Chat** — Chat with your brain directly from the web dashboard, same auto-detect logic as Telegram
+- **Web Dashboard** — Beautiful React UI for browsing memories, uploading documents, chatting, configuring models, and viewing logs
+- **Encrypted Backup & Restore** — One-click AES-256-GCM encrypted backup of your entire brain (database, vault, config) with password-protected restore
 - **Setup Wizard** — Guided first-run configuration for API keys, database, and Telegram bot
 
 ---
@@ -192,7 +194,8 @@ The SSE server runs on `http://localhost:3100/sse` when started with `./start-op
 Access at **http://localhost:5173** after starting services.
 
 - **Dashboard** — Browse memories, edit/delete, upload documents
-- **Settings** — Configure model roles, API keys, database, Telegram token
+- **Chat** — Conversational interface to ask questions or store memories (same as Telegram bot)
+- **Settings** — Configure model roles, API keys, database, Telegram token, backup & restore
 - **Logs** — Real-time system event log from all services
 
 ---
@@ -224,6 +227,7 @@ openbrain/
 │   ├── db.py               # PostgreSQL/pgvector database layer
 │   ├── llm.py              # Multi-model LLM client (roles, embeddings, vision)
 │   ├── ingest.py           # Document ingestion (PDF, images, Word, Excel)
+│   ├── backup.py           # Encrypted backup & restore (AES-256-GCM)
 │   ├── scrubber.py         # PII detection and redaction
 │   ├── server.py           # MCP server (stdio + SSE)
 │   └── telegram_bot.py     # Telegram bot with auto question detection
@@ -247,6 +251,59 @@ openbrain/
 - **Masked Display** — Secrets are masked in the dashboard and API responses
 - **Authorization** — Optional `TELEGRAM_AUTHORIZED_CHAT_ID` restricts bot access to a single user
 - **No secret leakage** — `.gitignore` excludes `.env`, and the settings UI never sends masked values back to the server
+- **Encrypted Backups** — Backups use AES-256-GCM with PBKDF2 key derivation (600k iterations); the `.obk` file is a single opaque blob
+
+---
+
+## 💾 Backup & Restore
+
+Open Brain includes a full encrypted backup and restore system. A backup packages **everything** into a single password-protected file:
+
+- All memories (with embeddings)
+- All vault secrets
+- `.env` configuration (API keys, database credentials, model settings)
+- Database schema
+
+### Creating a Backup
+
+1. Go to **Settings → Backup & Restore** in the dashboard
+2. Enter an encryption password (minimum 4 characters — use a strong passphrase)
+3. Click **Download Backup** — saves an `.obk` file
+
+Or via API:
+```bash
+curl -X POST http://localhost:8000/api/backup \
+  -H 'Content-Type: application/json' \
+  -d '{"password": "your-strong-password"}' \
+  -o openbrain_backup.obk
+```
+
+### Restoring from Backup
+
+1. Set up a fresh Open Brain instance (clone repo, start database, create venv)
+2. Go to **Settings → Backup & Restore**
+3. Select the `.obk` file and enter the original password
+4. Click **Restore System** — all data and config are restored
+5. Restart the backend to apply the restored `.env`
+
+Or via API:
+```bash
+curl -X POST http://localhost:8000/api/restore \
+  -F 'file=@openbrain_backup.obk' \
+  -F 'password=your-strong-password'
+```
+
+### Encryption Details
+
+| Property | Value |
+|----------|-------|
+| Cipher | AES-256-GCM |
+| Key derivation | PBKDF2-HMAC-SHA256, 600,000 iterations |
+| Salt | 16 bytes random per backup |
+| Nonce | 12 bytes random per backup |
+| File format | `[salt][nonce][ciphertext+GCM-tag]` |
+
+The backup file (`.obk`) is opaque — without the password, it is computationally infeasible to recover any data.
 
 ---
 

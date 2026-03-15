@@ -14,7 +14,8 @@ import base64
 import tempfile
 
 # Create the MCP server named "Open Brain"
-mcp = FastMCP("Open Brain")
+_mcp_port = int(os.getenv("MCP_PORT", "3100"))
+mcp = FastMCP("Open Brain", host="0.0.0.0", port=_mcp_port)
 
 
 # ---------------------------------------------------------------------------
@@ -212,10 +213,8 @@ def get_vault_secret(key: str) -> str:
 if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
     if transport == "sse":
-        # Run as HTTP+SSE server for network-accessible MCP
-        port = int(os.getenv("MCP_PORT", "3100"))
-        print(f"Starting Open Brain MCP server (SSE) on port {port}...", flush=True)
-        mcp.run(transport="sse", sse_params={"host": "0.0.0.0", "port": port})
+        print(f"Starting Open Brain MCP server (SSE) on port {_mcp_port}...", flush=True)
+        mcp.run(transport="sse")
     else:
         # Default: stdio transport for local MCP clients (Windsurf, Claude Desktop, etc.)
         mcp.run()

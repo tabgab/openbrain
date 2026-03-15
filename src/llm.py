@@ -86,6 +86,7 @@ Respond strictly with valid JSON using the following structure:
     }
 }
 """
+    VALID_CATEGORIES = {"invoice", "idea", "task", "note", "reference", "communication", "other"}
     try:
         text_client, text_model = get_client("text")
         response = text_client.chat.completions.create(
@@ -96,10 +97,19 @@ Respond strictly with valid JSON using the following structure:
             ],
             response_format={ "type": "json_object" }
         )
-        return json.loads(response.choices[0].message.content)
+        result = json.loads(response.choices[0].message.content)
+        # Validate and sanitize the category
+        cat = str(result.get("category", "")).strip().lower()
+        if cat not in VALID_CATEGORIES:
+            result["category"] = "other"
+        else:
+            result["category"] = cat
+        if not result.get("summary"):
+            result["summary"] = text[:80]
+        return result
     except Exception as e:
         print(f"Error categorizing text: {e}", flush=True)
-        return {"category": "error", "error_message": str(e)}
+        return {"category": "other", "summary": text[:80]}
 
 def describe_image(image_bytes: bytes, mime_type: str = "image/png", prompt: str = None) -> str:
     """

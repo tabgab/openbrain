@@ -5,7 +5,8 @@ import {
   Brain, Database, Key, CheckCircle2, XCircle, AlertCircle,
   Loader2, MessageSquare, Activity, Settings as SettingsIcon,
   Terminal, ArrowRight, Save, RefreshCw, ListTree, Bot,
-  Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles
+  Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles,
+  Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw
 } from 'lucide-react';
 
 const API = 'http://localhost:8000/api';
@@ -24,7 +25,7 @@ interface Config {
   modelVision: string; modelEmbedding: string;
 }
 
-type Tab = 'dashboard' | 'settings' | 'logs';
+type Tab = 'dashboard' | 'chat' | 'settings' | 'logs';
 
 const EMPTY_CONFIG: Config = {
   telegramToken: '', llmApiKey: '', dbPassword: '',
@@ -120,7 +121,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {(['dashboard', 'settings', 'logs'] as Tab[]).map(t => (
+          {(['dashboard', 'chat', 'settings', 'logs'] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -128,6 +129,7 @@ export default function App() {
               style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', textTransform: 'capitalize' }}
             >
               {t === 'dashboard' && <Activity size={16} />}
+              {t === 'chat' && <MessageSquare size={16} />}
               {t === 'settings' && <SettingsIcon size={16} />}
               {t === 'logs' && <Terminal size={16} />}
               {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -142,6 +144,7 @@ export default function App() {
       <AnimatePresence mode="wait">
         <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
           {tab === 'dashboard' && <DashboardTab memories={memories} health={health} onOpenWizard={() => setShowWizard(true)} onRefresh={fetchAll} />}
+          {tab === 'chat' && <ChatTab onMemoryAdded={fetchAll} />}
           {tab === 'settings' && <SettingsTab config={config} setConfig={setConfig} onSave={saveConfig} saving={saving} saveMsg={saveMsg} />}
           {tab === 'logs' && <LogsTab logs={logs} onRefresh={fetchAll} />}
         </motion.div>
@@ -413,6 +416,210 @@ function DashboardTab({ memories, health, onOpenWizard, onRefresh }: { memories:
   );
 }
 
+// --- Chat Tab ---
+interface ChatEntry {
+  role: 'user' | 'brain';
+  content: string;
+  type?: 'answer' | 'memory';
+  category?: string;
+  summary?: string;
+  memory_id?: string;
+  sources?: { id: string; source_type: string; summary: string }[];
+  mode?: string;
+  timestamp: Date;
+}
+
+function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
+  const [messages, setMessages] = useState<ChatEntry[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [mode, setMode] = useState<'' | 'question' | 'memory'>('');
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || sending) return;
+
+    const userMsg: ChatEntry = { role: 'user', content: text, mode: mode || 'auto', timestamp: new Date() };
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setSending(true);
+
+    try {
+      const res = await axios.post(`${API}/chat`, { message: text, force_mode: mode });
+      const data = res.data;
+      const brainMsg: ChatEntry = {
+        role: 'brain',
+        content: data.content,
+        type: data.type,
+        category: data.category,
+        summary: data.summary,
+        memory_id: data.memory_id,
+        sources: data.sources,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, brainMsg]);
+      if (data.type === 'memory') onMemoryAdded();
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.detail || err?.message || 'Something went wrong';
+      setMessages(prev => [...prev, { role: 'brain', content: `Error: ${errMsg}`, timestamp: new Date() }]);
+    } finally {
+      setSending(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const modeLabel = mode === 'question' ? 'Ask' : mode === 'memory' ? 'Store' : 'Auto';
+  const modeColor = mode === 'question' ? '#3b82f6' : mode === 'memory' ? '#10b981' : 'var(--text-secondary)';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 220px)', minHeight: '400px' }}>
+      <div className="glass-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Chat header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--glass-border)' }}>
+          <Brain size={20} color="var(--accent)" />
+          <h2 style={{ margin: 0, flex: 1 }}>Chat with Open Brain</h2>
+          <div style={{ display: 'flex', gap: '0.25rem', fontSize: '0.8rem' }}>
+            {([['', 'Auto'], ['question', 'Ask'], ['memory', 'Store']] as ['' | 'question' | 'memory', string][]).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`btn ${mode === m ? '' : 'btn-secondary'}`}
+                style={{ padding: '0.25rem 0.6rem', fontSize: '0.78rem' }}
+                title={m === '' ? 'Auto-detect question vs memory' : m === 'question' ? 'Force as question (search & answer)' : 'Force as memory (store)'}
+              >
+                {m === '' && <Sparkles size={12} />}
+                {m === 'question' && <HelpCircle size={12} />}
+                {m === 'memory' && <BookmarkPlus size={12} />}
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
+          {messages.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-secondary)' }}>
+              <Brain size={48} opacity={0.3} style={{ margin: '0 auto 1rem' }} />
+              <p style={{ fontSize: '1.05rem', fontWeight: 500, marginBottom: '0.5rem' }}>Talk to your Open Brain</p>
+              <p style={{ fontSize: '0.85rem', maxWidth: '400px', margin: '0 auto' }}>
+                Ask questions about your stored memories, or type something to save as a new memory.
+                The system auto-detects your intent — or use the mode toggle above.
+              </p>
+            </div>
+          )}
+          {messages.map((msg, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{
+                display: 'flex',
+                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                marginBottom: '0.75rem',
+              }}
+            >
+              <div style={{
+                maxWidth: '75%',
+                padding: '0.75rem 1rem',
+                borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                background: msg.role === 'user'
+                  ? 'linear-gradient(135deg, #3b82f6, #6366f1)'
+                  : 'var(--glass-bg)',
+                border: msg.role === 'brain' ? '1px solid var(--glass-border)' : 'none',
+                color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
+              }}>
+                {/* User mode badge */}
+                {msg.role === 'user' && msg.mode && (
+                  <div style={{ fontSize: '0.7rem', opacity: 0.7, marginBottom: '0.25rem' }}>
+                    {msg.mode === 'auto' ? '✨ auto' : msg.mode === 'question' ? '❓ question' : '📝 memory'}
+                  </div>
+                )}
+
+                {/* Brain response type badge */}
+                {msg.role === 'brain' && msg.type && (
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                    fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.4rem',
+                    padding: '0.15rem 0.5rem', borderRadius: '999px',
+                    background: msg.type === 'answer' ? 'rgba(59,130,246,0.15)' : 'rgba(16,185,129,0.15)',
+                    color: msg.type === 'answer' ? '#60a5fa' : '#34d399',
+                  }}>
+                    {msg.type === 'answer' ? <><Search size={10} /> Answer</> : <><CheckCircle2 size={10} /> Stored</>}
+                  </div>
+                )}
+
+                <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.9rem', lineHeight: 1.5 }}>{msg.content}</div>
+
+                {/* Memory saved info */}
+                {msg.type === 'memory' && msg.category && (
+                  <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', opacity: 0.7 }}>
+                    Category: {msg.category}{msg.summary ? ` · ${msg.summary}` : ''}
+                  </div>
+                )}
+
+                {/* Sources for answers */}
+                {msg.sources && msg.sources.length > 0 && (
+                  <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--glass-border)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    <span style={{ fontWeight: 600 }}>Sources:</span>
+                    {msg.sources.map((s, j) => (
+                      <div key={j} style={{ marginTop: '0.2rem', paddingLeft: '0.5rem' }}>
+                        · <span style={{ color: 'var(--accent)' }}>{s.source_type}</span>: {s.summary}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ fontSize: '0.68rem', opacity: 0.5, marginTop: '0.3rem', textAlign: msg.role === 'user' ? 'right' : 'left' }}>
+                  {msg.timestamp.toLocaleTimeString()}
+                </div>
+              </div>
+            </motion.div>
+          ))}
+          {sending && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '0.75rem' }}>
+              <div style={{ padding: '0.75rem 1rem', borderRadius: '16px 16px 16px 4px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)' }}>
+                <Loader2 size={16} className="animate-spin" color="var(--accent)" />
+                <span style={{ marginLeft: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Thinking...</span>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input bar */}
+        <div style={{ display: 'flex', gap: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid var(--glass-border)', marginTop: '0.5rem' }}>
+          <div style={{ fontSize: '0.75rem', color: modeColor, alignSelf: 'center', minWidth: '40px', textAlign: 'center', fontWeight: 600 }}>
+            {modeLabel}
+          </div>
+          <input
+            ref={inputRef}
+            type="text"
+            className="input-field"
+            placeholder={mode === 'question' ? 'Ask a question...' : mode === 'memory' ? 'Type a memory to store...' : 'Ask a question or store a memory...'}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && send()}
+            disabled={sending}
+            style={{ flex: 1, margin: 0 }}
+            autoFocus
+          />
+          <button className="btn" onClick={send} disabled={sending || !input.trim()} style={{ padding: '0.5rem 1rem' }}>
+            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Settings Tab ---
 function SettingsTab({ config, onSave, saving, saveMsg }: any) {
   // Initialize with empty strings for secrets, real values for non-secrets
@@ -576,12 +783,167 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
         </div>
       </Section>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
         <button className="btn" onClick={handleSave} disabled={saving}>
           {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
           Save Changes
         </button>
         {saveMsg && <span style={{ fontSize: '0.9rem', color: saveMsg.startsWith('✅') ? 'var(--success)' : 'var(--error)' }}>{saveMsg}</span>}
+      </div>
+
+      <BackupRestoreSection />
+    </div>
+  );
+}
+
+// --- Backup & Restore ---
+function BackupRestoreSection() {
+  const [backupPassword, setBackupPassword] = useState('');
+  const [backupStatus, setBackupStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [backingUp, setBackingUp] = useState(false);
+
+  const [restorePassword, setRestorePassword] = useState('');
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restoreStatus, setRestoreStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const restoreFileRef = useRef<HTMLInputElement>(null);
+
+  const doBackup = async () => {
+    if (backupPassword.length < 4) {
+      setBackupStatus({ ok: false, msg: 'Password must be at least 4 characters.' });
+      return;
+    }
+    setBackingUp(true);
+    setBackupStatus(null);
+    try {
+      const res = await axios.post(`${API}/backup`, { password: backupPassword }, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const disposition = res.headers['content-disposition'] || '';
+      const match = disposition.match(/filename=(.+)/);
+      link.download = match ? match[1] : `openbrain_backup.obk`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setBackupStatus({ ok: true, msg: 'Encrypted backup downloaded successfully.' });
+      setBackupPassword('');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || 'Backup failed';
+      setBackupStatus({ ok: false, msg: typeof detail === 'string' ? detail : 'Backup failed' });
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  const doRestore = async () => {
+    if (!restoreFile) {
+      setRestoreStatus({ ok: false, msg: 'Please select a .obk backup file.' });
+      return;
+    }
+    if (restorePassword.length < 4) {
+      setRestoreStatus({ ok: false, msg: 'Password must be at least 4 characters.' });
+      return;
+    }
+    setRestoring(true);
+    setRestoreStatus(null);
+    try {
+      const form = new FormData();
+      form.append('file', restoreFile);
+      form.append('password', restorePassword);
+      const res = await axios.post(`${API}/restore`, form);
+      const summary = res.data.summary || {};
+      const tables = (summary.tables_restored || []).map((t: any) => t.error ? `${t.table}: ERROR` : `${t.table}: ${t.rows} rows`).join(', ');
+      setRestoreStatus({ ok: true, msg: `Restored: ${tables}. Env: ${summary.env_restored ? 'yes' : 'no'}. Restart the backend to apply.` });
+      setRestorePassword('');
+      setRestoreFile(null);
+      if (restoreFileRef.current) restoreFileRef.current.value = '';
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || 'Restore failed';
+      setRestoreStatus({ ok: false, msg: typeof detail === 'string' ? detail : 'Restore failed' });
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  return (
+    <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+        <Shield size={20} color="var(--accent)" />
+        <h2 style={{ margin: 0 }}>Backup & Restore</h2>
+      </div>
+      <p style={{ fontSize: '0.9rem', marginBottom: '1.25rem', color: 'var(--text-secondary)' }}>
+        Create an AES-256 encrypted backup of your entire Open Brain (all memories, vault secrets, and configuration).
+        Restore it to any fresh instance with the correct password.
+      </p>
+
+      {/* Backup */}
+      <div style={{ padding: '1rem', borderRadius: '10px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <Download size={16} color="#3b82f6" />
+          <strong style={{ fontSize: '0.95rem' }}>Create Backup</strong>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="password"
+            className="input-field"
+            placeholder="Encryption password (min 4 chars)"
+            value={backupPassword}
+            onChange={e => setBackupPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && doBackup()}
+            style={{ flex: 1, margin: 0, minWidth: '200px' }}
+          />
+          <button className="btn" onClick={doBackup} disabled={backingUp} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}>
+            {backingUp ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            {backingUp ? 'Creating...' : 'Download Backup'}
+          </button>
+        </div>
+        {backupStatus && (
+          <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: backupStatus.ok ? 'var(--success)' : 'var(--error)' }}>
+            {backupStatus.ok ? '✅' : '❌'} {backupStatus.msg}
+          </div>
+        )}
+      </div>
+
+      {/* Restore */}
+      <div style={{ padding: '1rem', borderRadius: '10px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <RotateCcw size={16} color="#f59e0b" />
+          <strong style={{ fontSize: '0.95rem' }}>Restore from Backup</strong>
+        </div>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
+          This will <strong>overwrite</strong> all current memories, vault secrets, and configuration with the backup contents.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+          <input
+            ref={restoreFileRef}
+            type="file"
+            accept=".obk"
+            onChange={e => setRestoreFile(e.target.files?.[0] || null)}
+            style={{ fontSize: '0.85rem', flex: 1, minWidth: '200px' }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="password"
+            className="input-field"
+            placeholder="Backup password"
+            value={restorePassword}
+            onChange={e => setRestorePassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && doRestore()}
+            style={{ flex: 1, margin: 0, minWidth: '200px' }}
+          />
+          <button className="btn" onClick={doRestore} disabled={restoring} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem', background: '#f59e0b' }}>
+            {restoring ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+            {restoring ? 'Restoring...' : 'Restore System'}
+          </button>
+        </div>
+        {restoreStatus && (
+          <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: restoreStatus.ok ? 'var(--success)' : 'var(--error)' }}>
+            {restoreStatus.ok ? '✅' : '❌'} {restoreStatus.msg}
+          </div>
+        )}
       </div>
     </div>
   );

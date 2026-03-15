@@ -5,7 +5,7 @@ from db import store_secret
 # In a robust system, this could be replaced by a full NER / Presidio library 
 PATTERNS = {
     "API_KEY": r"(?i)(?:key|token|secret)[\s=:]+([a-zA-Z0-9_\-]{20,})",
-    "CREDIT_CARD": r"\b(?:\d[ -]*?){13,16}\b",
+    "CREDIT_CARD": r"\b\d{4}[- ]\d{4}[- ]\d{4}[- ]\d{4}\b",
     "SSN": r"\b\d{3}-\d{2}-\d{4}\b",
     "PASSWORD": r"(?i)(?:password|pwd)[\s=:]+([^\s]+)"
 }
