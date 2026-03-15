@@ -427,6 +427,7 @@ def update_config(config: ConfigUpdate):
 
 class BackupRequest(BaseModel):
     password: str
+    include_secrets: bool = True  # If False, LLM API key & Telegram token are excluded
 
 @app.post("/api/backup")
 def backup_endpoint(payload: BackupRequest):
@@ -435,8 +436,9 @@ def backup_endpoint(payload: BackupRequest):
         raise HTTPException(status_code=400, detail="Password must be at least 4 characters.")
     try:
         from backup import create_backup
-        add_event("info", "backup", "Creating encrypted backup...")
-        encrypted_data, manifest = create_backup(payload.password)
+        secrets_label = "with" if payload.include_secrets else "without"
+        add_event("info", "backup", f"Creating encrypted backup ({secrets_label} API secrets)...")
+        encrypted_data, manifest = create_backup(payload.password, include_secrets=payload.include_secrets)
         add_event("success", "backup",
             f"Backup created: {manifest.get('memory_count', '?')} memories, "
             f"{manifest.get('vault_count', '?')} vault entries, "

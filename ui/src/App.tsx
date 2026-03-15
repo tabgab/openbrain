@@ -801,6 +801,7 @@ function BackupRestoreSection() {
   const [backupPassword, setBackupPassword] = useState('');
   const [backupStatus, setBackupStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [backingUp, setBackingUp] = useState(false);
+  const [includeSecrets, setIncludeSecrets] = useState(true);
 
   const [restorePassword, setRestorePassword] = useState('');
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
@@ -816,7 +817,7 @@ function BackupRestoreSection() {
     setBackingUp(true);
     setBackupStatus(null);
     try {
-      const res = await axios.post(`${API}/backup`, { password: backupPassword }, { responseType: 'blob' });
+      const res = await axios.post(`${API}/backup`, { password: backupPassword, include_secrets: includeSecrets }, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -899,6 +900,16 @@ function BackupRestoreSection() {
             {backingUp ? 'Creating...' : 'Download Backup'}
           </button>
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.6rem', fontSize: '0.85rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+          <input
+            type="checkbox"
+            checked={includeSecrets}
+            onChange={e => setIncludeSecrets(e.target.checked)}
+            style={{ accentColor: 'var(--accent)' }}
+          />
+          Include LLM API key & Telegram token
+          <span style={{ fontSize: '0.78rem', opacity: 0.7 }}>(DB password & vault are always included)</span>
+        </label>
         {backupStatus && (
           <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: backupStatus.ok ? 'var(--success)' : 'var(--error)' }}>
             {backupStatus.ok ? '✅' : '❌'} {backupStatus.msg}

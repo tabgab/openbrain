@@ -131,9 +131,36 @@ def _restore_table_from_json(table: str, rows: list[dict], truncate: bool = True
 # Backup
 # ---------------------------------------------------------------------------
 
-def create_backup(password: str) -> tuple[bytes, dict]:
+# Keys that are excluded from .env when include_secrets=False
+# DB password and vault are ALWAYS included.
+_OPTIONAL_SECRET_KEYS = {"LLM_API_KEY", "TELEGRAM_BOT_TOKEN"}
+
+
+def _filter_env(env_text: str, include_secrets: bool) -> str:
+    """Optionally strip LLM API key and Telegram token from .env content."""
+    if include_secrets:
+        return env_text
+    filtered_lines = []
+    for line in env_text.splitlines(keepends=True):
+        stripped = line.strip()
+        # Skip lines that set an optional secret key
+        key_part = stripped.split("=", 1)[0].strip() if "=" in stripped else ""
+        if key_part in _OPTIONAL_SECRET_KEYS:
+            filtered_lines.append(f"# {key_part}=  # excluded from backup\n")
+        else:
+            filtered_lines.append(line)
+    return "".join(filtered_lines)
+
+
+def create_backup(password: str, include_secrets: bool = True) -> tuple[bytes, dict]:
     """
     Create an encrypted .obk backup of the entire Open Brain system.
+    
+    Args:
+        password: Encryption password.
+        include_secrets: If False, LLM API key and Telegram bot token are
+                         excluded from the .env in the backup. Database
+                         password and vault secrets are always included.
     Returns (encrypted_bytes, metadata_dict).
     """
     project_root = os.path.dirname(os.path.dirname(__file__))
@@ -151,10 +178,15 @@ def create_backup(password: str) -> tuple[bytes, dict]:
             except Exception as e:
                 print(f"[Backup] Warning: could not dump table '{table}': {e}", flush=True)
 
-        # 2. .env configuration
+        # 2. .env configuration (optionally stripped of LLM/Telegram secrets)
         env_path = os.path.join(project_root, ".env")
         if os.path.exists(env_path):
-            tar.add(env_path, arcname="config/.env")
+            with open(env_path, "r") as ef:
+                env_content = _filter_env(ef.read(), include_secrets)
+            env_bytes = env_content.encode("utf-8")
+            env_info = tarfile.TarInfo(name="config/.env")
+            env_info.size = len(env_bytes)
+            tar.addfile(env_info, io.BytesIO(env_bytes))
 
         # 3. Schema SQL (for bare restore)
         schema_path = os.path.join(project_root, "init-scripts", "schema.sql")
@@ -167,6 +199,7 @@ def create_backup(password: str) -> tuple[bytes, dict]:
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "tables": ["memories", "vault"],
             "includes_env": os.path.exists(env_path),
+            "includes_secrets": include_secrets,
             "includes_schema": os.path.exists(schema_path),
         }
         # Count rows
