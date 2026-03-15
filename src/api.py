@@ -649,6 +649,41 @@ def google_gmail_preview(payload: dict):
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
+# Calendar: scan events
+@app.post("/api/google/calendar/scan")
+def google_calendar_scan(payload: dict):
+    """Scan calendar events for a connected Google account."""
+    email = payload.get("email", "")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
+    from google_integration import scan_calendar_events
+    result = scan_calendar_events(
+        email=email,
+        time_min=payload.get("time_min", ""),
+        time_max=payload.get("time_max", ""),
+        max_results=payload.get("max_results", 500),
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+# Calendar: ingest selected events
+@app.post("/api/google/calendar/ingest")
+def google_calendar_ingest(payload: dict):
+    """Ingest selected calendar events as memories."""
+    email = payload.get("email", "")
+    event_ids = payload.get("event_ids", [])
+    if not email or not event_ids:
+        raise HTTPException(status_code=400, detail="Email and event_ids are required.")
+    from google_integration import ingest_calendar_events
+    add_event("info", "google", f"Ingesting {len(event_ids)} calendar events ({email})...")
+    result = ingest_calendar_events(email, event_ids)
+    if "error" in result:
+        add_event("error", "google", f"Calendar ingest failed: {result['error']}")
+    else:
+        add_event("success", "google", f"Calendar: {len(result.get('ingested', []))} events ingested from {email}")
+    return result
+
 # --- WhatsApp Import ---
 
 class WhatsAppImport(BaseModel):

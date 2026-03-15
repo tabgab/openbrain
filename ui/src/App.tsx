@@ -7,7 +7,7 @@ import {
   Terminal, ArrowRight, Save, RefreshCw, ListTree, Bot,
   Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles,
   Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw,
-  Cloud, Mail, Link, Phone
+  Cloud, Mail, Link, Phone, CalendarDays
 } from 'lucide-react';
 
 const API = 'http://localhost:8000/api';
@@ -986,13 +986,14 @@ function IngestTab({ onRefresh }: { onRefresh: () => void }) {
 interface GoogleAccount { email: string; connected: boolean; connected_at?: string; drive_last_sync?: string; gmail_last_sync?: string; }
 interface DriveFile { id: string; name: string; mimeType: string; modifiedTime: string; size: string; already_synced: boolean; }
 interface GmailMsg { id: string; from: string; subject: string; date: string; snippet: string; already_synced: boolean; }
+interface CalEvent { id: string; recurring_id: string; summary: string; start: string; end: string; location: string; description: string; calendar: string; is_recurring: boolean; occurrence_count: number; recurrence_info: string; already_synced: boolean; }
 
 function GoogleIntegrationSection() {
   const [hasCreds, setHasCreds] = useState(false);
   const [accounts, setAccounts] = useState<GoogleAccount[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'drive' | 'gmail'>('drive');
+  const [activeTab, setActiveTab] = useState<'drive' | 'gmail' | 'calendar'>('drive');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [showSetup, setShowSetup] = useState(false);
 
@@ -1020,6 +1021,15 @@ function GoogleIntegrationSection() {
   const [expandedEmail, setExpandedEmail] = useState<string | null>(null);
   const [emailPreview, setEmailPreview] = useState<{ id: string; from: string; to: string; subject: string; date: string; body: string; html_body?: string; image_count?: number } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+
+  // Calendar state
+  const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
+  const [calSelected, setCalSelected] = useState<Set<string>>(new Set());
+  const [calScanning, setCalScanning] = useState(false);
+  const [calIngesting, setCalIngesting] = useState(false);
+  const [calFilter, setCalFilter] = useState('');
+  const [calScanInfo, setCalScanInfo] = useState<{ is_first_scan: boolean; calendars_scanned: number } | null>(null);
+  const [calShowPrompt, setCalShowPrompt] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -1130,6 +1140,50 @@ function GoogleIntegrationSection() {
     finally { setGmailIngesting(false); }
   };
 
+  // Calendar functions
+  const scanCalendar = async () => {
+    if (!activeAccount) return;
+    setCalScanning(true); setMsg(null);
+    try {
+      const res = await axios.post(`${API}/google/calendar/scan`, { email: activeAccount });
+      setCalEvents(res.data.events || []);
+      setCalScanInfo({ is_first_scan: res.data.is_first_scan, calendars_scanned: res.data.calendars_scanned });
+      const newCount = (res.data.events || []).filter((e: CalEvent) => !e.already_synced).length;
+      if (newCount === 0) setMsg({ ok: true, text: `Scanned ${res.data.calendars_scanned} calendars — all events already synced.` });
+      else setMsg({ ok: true, text: `Found ${res.data.total} events (${newCount} new) across ${res.data.calendars_scanned} calendars.` });
+    } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Calendar scan failed' }); }
+    finally { setCalScanning(false); }
+  };
+
+  const ingestCalEvents = async () => {
+    if (!activeAccount || calSelected.size === 0) return;
+    setCalIngesting(true); setMsg(null);
+    try {
+      const res = await axios.post(`${API}/google/calendar/ingest`, { email: activeAccount, event_ids: Array.from(calSelected) });
+      const n = res.data.ingested?.length || 0;
+      const e = res.data.errors?.length || 0;
+      setMsg({ ok: e === 0, text: `Ingested ${n} calendar events${e > 0 ? `, ${e} errors` : ''}` });
+      setCalSelected(new Set());
+      scanCalendar();
+    } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Calendar ingest failed' }); }
+    finally { setCalIngesting(false); }
+  };
+
+  const toggleCal = (id: string) => setCalSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const selectAllNewCal = () => setCalSelected(new Set(calEvents.filter(e => !e.already_synced).map(e => e.id)));
+
+  const filteredCalEvents = calFilter
+    ? calEvents.filter(e => e.summary.toLowerCase().includes(calFilter.toLowerCase()) || e.calendar.toLowerCase().includes(calFilter.toLowerCase()) || e.location.toLowerCase().includes(calFilter.toLowerCase()))
+    : calEvents;
+
+  // Auto-prompt calendar scan on first load when accounts exist
+  useEffect(() => {
+    if (accounts.length > 0 && activeAccount && !calShowPrompt && calEvents.length === 0) {
+      setCalShowPrompt(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, activeAccount]);
+
   const toggleDrive = (id: string) => setDriveSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const toggleGmail = (id: string) => setGmailSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
@@ -1198,7 +1252,7 @@ function GoogleIntegrationSection() {
           <strong>Google OAuth Setup Guide:</strong>
           <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.6 }}>
             <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Cloud Console</a> and create a project (or select an existing one)</li>
-            <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Library</strong>, search for and enable both <strong>Google Drive API</strong> and <strong>Gmail API</strong></li>
+            <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Library</strong>, search for and enable <strong>Google Drive API</strong>, <strong>Gmail API</strong>, and <strong>Google Calendar API</strong></li>
             <li>
               Go to <strong>Google Auth Platform</strong> (or <strong>APIs & Services</strong> &rarr; <strong>OAuth consent screen</strong>), then in the left sidebar:
               <ul style={{ margin: '0.3rem 0 0.3rem 1rem', lineHeight: 1.5 }}>
@@ -1246,15 +1300,31 @@ function GoogleIntegrationSection() {
         </div>
       )}
 
-      {/* Drive / Gmail tabs */}
+      {/* Calendar scan prompt (on startup) */}
+      {calShowPrompt && accounts.length > 0 && calEvents.length === 0 && !calScanning && (
+        <div style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', marginBottom: '0.75rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+          <CalendarDays size={16} color="var(--accent)" />
+          <span>Would you like to scan your Google calendars for new events?</span>
+          <button className="btn" onClick={() => { setActiveTab('calendar'); scanCalendar(); setCalShowPrompt(false); }} style={{ padding: '0.25rem 0.7rem', fontSize: '0.8rem' }}>
+            <CalendarDays size={12} /> Scan Calendars
+          </button>
+          <button className="btn btn-secondary" onClick={() => setCalShowPrompt(false)} style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Drive / Gmail / Calendar tabs */}
       {activeAccount && (
         <>
           <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '0.75rem' }}>
-            {(['drive', 'gmail'] as const).map(t => (
+            {(['drive', 'gmail', 'calendar'] as const).map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
                 style={{ padding: '0.3rem 0.8rem', borderRadius: '6px', fontSize: '0.82rem', border: 'none', cursor: 'pointer',
                   background: activeTab === t ? 'rgba(59,130,246,0.2)' : 'transparent', color: activeTab === t ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: activeTab === t ? 600 : 400 }}>
-                {t === 'drive' ? <><Cloud size={13} /> Drive</> : <><Mail size={13} /> Gmail</>}
+                {t === 'drive' && <><Cloud size={13} /> Drive</>}
+                {t === 'gmail' && <><Mail size={13} /> Gmail</>}
+                {t === 'calendar' && <><CalendarDays size={13} /> Calendar</>}
               </button>
             ))}
           </div>
@@ -1412,6 +1482,73 @@ function GoogleIntegrationSection() {
                       ? `Ingest ${gmailSelected.size} email${gmailSelected.size !== 1 ? 's' : ''}${gmailIncludeImages ? ' + images' : ''}`
                       : 'Select emails to ingest'}
                   </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CALENDAR TAB */}
+          {activeTab === 'calendar' && (
+            <div>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem', alignItems: 'center' }}>
+                <button className="btn" onClick={scanCalendar} disabled={calScanning} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}>
+                  {calScanning ? <Loader2 size={13} className="animate-spin" /> : <CalendarDays size={13} />}
+                  {calScanning ? 'Scanning...' : 'Scan Calendars'}
+                </button>
+                {calScanInfo && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    {calScanInfo.calendars_scanned} calendar{calScanInfo.calendars_scanned !== 1 ? 's' : ''} scanned
+                    {calScanInfo.is_first_scan ? ' (first scan — last 12 months)' : ' (current month + 30 days ahead)'}
+                  </span>
+                )}
+              </div>
+              {calEvents.length > 0 && (
+                <>
+                  <div style={sty.filter}>
+                    <input style={sty.inp} placeholder="Filter events by name, calendar, or location..." value={calFilter} onChange={e => setCalFilter(e.target.value)} />
+                  </div>
+                  <div style={{ maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      <button onClick={selectAllNewCal} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all new</button>
+                      <span style={{ marginLeft: 'auto' }}>{calSelected.size} selected · {filteredCalEvents.length} shown</span>
+                    </div>
+                    {filteredCalEvents.map(ev => (
+                      <label key={ev.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.4rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
+                        borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: ev.already_synced ? 0.5 : 1 }}>
+                        <input type="checkbox" checked={calSelected.has(ev.id)} onChange={() => toggleCal(ev.id)} disabled={ev.already_synced}
+                          style={{ accentColor: 'var(--accent)', marginTop: '0.15rem' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
+                            {ev.is_recurring && (
+                              <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', whiteSpace: 'nowrap' }}>
+                                {ev.recurrence_info || `Recurring ×${ev.occurrence_count}`}
+                              </span>
+                            )}
+                            {ev.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                            {ev.start?.slice(0, 16).replace('T', ' ')}
+                            {ev.location && <> · {ev.location}</>}
+                            {ev.calendar && <> · <em>{ev.calendar}</em></>}
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <button className="btn" onClick={ingestCalEvents} disabled={calIngesting || calSelected.size === 0} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem', opacity: calSelected.size === 0 ? 0.5 : 1 }}>
+                      {calIngesting ? <Loader2 size={13} className="animate-spin" /> : <CalendarDays size={13} />}
+                      {calSelected.size > 0
+                        ? `Ingest ${calSelected.size} event${calSelected.size !== 1 ? 's' : ''}`
+                        : 'Select events to ingest'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {calScanning && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <Loader2 size={16} className="animate-spin" color="var(--accent)" /> Scanning calendars...
                 </div>
               )}
             </div>
