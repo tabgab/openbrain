@@ -6,7 +6,8 @@ import {
   Loader2, MessageSquare, Activity, Settings as SettingsIcon,
   Terminal, ArrowRight, Save, RefreshCw, ListTree, Bot,
   Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles,
-  Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw
+  Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw,
+  Cloud, Mail, Link, Unlink, Phone
 } from 'lucide-react';
 
 const API = 'http://localhost:8000/api';
@@ -792,6 +793,8 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
       </div>
 
       <BackupRestoreSection />
+      <GoogleIntegrationSection />
+      <WhatsAppImportSection onImported={onSave} />
     </div>
   );
 }
@@ -956,6 +959,184 @@ function BackupRestoreSection() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// --- Google Drive & Gmail ---
+function GoogleIntegrationSection() {
+  const [status, setStatus] = useState<{ connected: boolean; email?: string; reason?: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState<'drive' | 'gmail' | null>(null);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/google/status`);
+      setStatus(res.data);
+    } catch { setStatus({ connected: false, reason: 'api_error' }); }
+  }, []);
+
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  const connect = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.post(`${API}/google/connect`);
+      if (res.data.auth_url) window.open(res.data.auth_url, '_blank');
+      // Poll for connection status after redirect
+      const poll = setInterval(async () => {
+        const s = await axios.get(`${API}/google/status`);
+        if (s.data.connected) { setStatus(s.data); clearInterval(poll); setLoading(false); }
+      }, 3000);
+      setTimeout(() => { clearInterval(poll); setLoading(false); }, 120000);
+    } catch (err: any) {
+      setSyncResult({ ok: false, msg: err?.response?.data?.detail || 'Failed to start OAuth' });
+      setLoading(false);
+    }
+  };
+
+  const disconnect = async () => {
+    await axios.post(`${API}/google/disconnect`);
+    setStatus({ connected: false, reason: 'disconnected' });
+    setSyncResult(null);
+  };
+
+  const sync = async (type: 'drive' | 'gmail') => {
+    setSyncing(type);
+    setSyncResult(null);
+    try {
+      const res = await axios.post(`${API}/google/sync/${type}`);
+      if (res.data.error) {
+        setSyncResult({ ok: false, msg: res.data.error });
+      } else {
+        const ingested = res.data.ingested?.length || 0;
+        const checked = res.data.files_checked || res.data.emails_checked || 0;
+        setSyncResult({ ok: true, msg: `${type === 'drive' ? 'Drive' : 'Gmail'}: ${ingested} new items ingested (${checked} checked)` });
+      }
+    } catch (err: any) {
+      setSyncResult({ ok: false, msg: err?.response?.data?.detail || `${type} sync failed` });
+    } finally { setSyncing(null); }
+  };
+
+  return (
+    <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+        <Cloud size={20} color="var(--accent)" />
+        <h2 style={{ margin: 0, flex: 1 }}>Google Drive & Gmail</h2>
+        {status?.connected && (
+          <span style={{ fontSize: '0.82rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <CheckCircle2 size={14} /> {status.email}
+          </span>
+        )}
+      </div>
+
+      {!status?.connected ? (
+        <div>
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+            Connect your Google account to automatically sync files from Drive and emails from Gmail into your Open Brain.
+            Requires a <code>google_credentials.json</code> file from Google Cloud Console (OAuth 2.0 Desktop credentials).
+          </p>
+          <button className="btn" onClick={connect} disabled={loading} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Link size={14} />}
+            {loading ? 'Waiting for authorization...' : 'Connect Google Account'}
+          </button>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+            <button className="btn" onClick={() => sync('drive')} disabled={syncing !== null} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}>
+              {syncing === 'drive' ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
+              {syncing === 'drive' ? 'Syncing Drive...' : 'Sync Google Drive'}
+            </button>
+            <button className="btn" onClick={() => sync('gmail')} disabled={syncing !== null} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}>
+              {syncing === 'gmail' ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+              {syncing === 'gmail' ? 'Syncing Gmail...' : 'Sync Gmail'}
+            </button>
+            <button className="btn btn-secondary" onClick={disconnect} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem', marginLeft: 'auto' }}>
+              <Unlink size={14} /> Disconnect
+            </button>
+          </div>
+        </div>
+      )}
+
+      {syncResult && (
+        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: syncResult.ok ? 'var(--success)' : 'var(--error)' }}>
+          {syncResult.ok ? '✅' : '❌'} {syncResult.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- WhatsApp Import ---
+function WhatsAppImportSection({ onImported }: { onImported: () => void }) {
+  const [chatName, setChatName] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const doImport = async () => {
+    if (!file) { setResult({ ok: false, msg: 'Please select a WhatsApp export .txt file.' }); return; }
+    setImporting(true);
+    setResult(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('chat_name', chatName || 'WhatsApp Chat');
+      const res = await axios.post(`${API}/whatsapp/import`, form);
+      if (res.data.error) {
+        setResult({ ok: false, msg: res.data.error });
+      } else {
+        setResult({ ok: true, msg: `Imported ${res.data.ingested} message groups (${res.data.total_messages} messages) from "${res.data.chat_name}"` });
+        onImported();
+        setFile(null);
+        setChatName('');
+        if (fileRef.current) fileRef.current.value = '';
+      }
+    } catch (err: any) {
+      setResult({ ok: false, msg: err?.response?.data?.detail || 'Import failed' });
+    } finally { setImporting(false); }
+  };
+
+  return (
+    <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+        <Phone size={20} color="#25D366" />
+        <h2 style={{ margin: 0 }}>WhatsApp Import</h2>
+      </div>
+      <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+        Import a WhatsApp chat export. In WhatsApp, open a chat → tap ⋮ → <strong>Export chat</strong> → <strong>Without media</strong> → save the .txt file.
+      </p>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".txt"
+          onChange={e => setFile(e.target.files?.[0] || null)}
+          style={{ fontSize: '0.85rem', flex: 1, minWidth: '200px' }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          className="input-field"
+          placeholder="Chat name (e.g. Family Group)"
+          value={chatName}
+          onChange={e => setChatName(e.target.value)}
+          style={{ flex: 1, margin: 0, minWidth: '200px' }}
+        />
+        <button className="btn" onClick={doImport} disabled={importing} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem', background: '#25D366' }}>
+          {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+          {importing ? 'Importing...' : 'Import Chat'}
+        </button>
+      </div>
+      {result && (
+        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: result.ok ? 'var(--success)' : 'var(--error)' }}>
+          {result.ok ? '✅' : '❌'} {result.msg}
+        </div>
+      )}
     </div>
   );
 }

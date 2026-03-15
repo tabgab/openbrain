@@ -16,6 +16,9 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **MCP Server** — Full Model Context Protocol support (stdio + SSE) so other AI systems can use your brain as a tool
 - **PII Scrubbing** — Automatic detection and redaction of secrets, API keys, credit cards, SSNs
 - **Secure Vault** — Sensitive information stored separately, never exposed in search results
+- **Google Drive Sync** — OAuth 2.0 connection to Google Drive; automatically ingest new/modified documents (Docs, Sheets, PDFs, etc.)
+- **Gmail Sync** — Pull recent emails from Gmail and store them as searchable memories with sender/subject metadata
+- **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
 - **Dashboard Chat** — Chat with your brain directly from the web dashboard, same auto-detect logic as Telegram
 - **Web Dashboard** — Beautiful React UI for browsing memories, uploading documents, chatting, configuring models, and viewing logs
 - **Encrypted Backup & Restore** — One-click AES-256-GCM encrypted backup of your entire brain (database, vault, config) with password-protected restore
@@ -151,6 +154,46 @@ The bot auto-detects questions using heuristics + LLM classification — no pref
 
 ---
 
+## ☁️ Google Drive & Gmail
+
+Sync files from Google Drive and emails from Gmail directly into your Open Brain.
+
+### Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project (or use an existing one)
+3. Enable the **Google Drive API** and **Gmail API**
+4. Go to **Credentials** → **Create Credentials** → **OAuth 2.0 Client ID**
+   - Application type: **Web application**
+   - Authorized redirect URI: `http://localhost:8000/api/google/callback`
+5. Download the JSON file and save it as `google_credentials.json` in the project root
+6. In the dashboard, go to **Settings → Google Drive & Gmail** and click **Connect Google Account**
+7. Authorize in the browser — you'll be redirected back automatically
+
+### Usage
+
+Once connected, use the **Sync Google Drive** and **Sync Gmail** buttons in Settings. Each sync:
+
+- **Drive**: Fetches new/modified files since last sync, downloads them, and ingests through the document pipeline (PDF, Docs, Sheets, etc.)
+- **Gmail**: Fetches recent emails, extracts body text, PII-scrubs, categorizes, and stores as memories with sender/subject metadata
+
+Sync state is tracked locally — only new items are ingested on each run.
+
+---
+
+## 💬 WhatsApp Import
+
+Import WhatsApp chat history into your Open Brain:
+
+1. In WhatsApp, open a chat → tap **⋮** → **Export chat** → **Without media**
+2. Save the `.txt` file
+3. In the dashboard, go to **Settings → WhatsApp Import**
+4. Select the file, optionally name the chat, and click **Import Chat**
+
+Messages are grouped by sender (consecutive messages merged), PII-scrubbed, categorized, and stored with metadata (sender, timestamp, chat name).
+
+---
+
 ## 🔌 MCP Server
 
 Other AI systems can connect to Open Brain as an MCP server with **10 tools**:
@@ -200,7 +243,7 @@ Access at **http://localhost:5173** after starting services.
 
 - **Dashboard** — Browse memories, edit/delete, upload documents
 - **Chat** — Conversational interface to ask questions or store memories (same as Telegram bot)
-- **Settings** — Configure model roles, API keys, database, Telegram token, backup & restore
+- **Settings** — Configure model roles, API keys, database, Telegram token, backup & restore, Google sync, WhatsApp import
 - **Logs** — Real-time system event log from all services
 
 ---
@@ -233,6 +276,8 @@ openbrain/
 │   ├── llm.py              # Multi-model LLM client (roles, embeddings, vision)
 │   ├── ingest.py           # Document ingestion (PDF, images, Word, Excel)
 │   ├── backup.py           # Encrypted backup & restore (AES-256-GCM)
+│   ├── google_integration.py # Google Drive & Gmail OAuth + sync
+│   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
 │   ├── scrubber.py         # PII detection and redaction
 │   ├── server.py           # MCP server (stdio + SSE)
 │   └── telegram_bot.py     # Telegram bot with auto question detection

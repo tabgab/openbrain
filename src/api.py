@@ -477,3 +477,98 @@ async def restore_endpoint(file: UploadFile = File(...), password: str = Form(..
     except Exception as e:
         add_event("error", "restore", f"Restore failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Google Drive & Gmail ---
+
+@app.get("/api/google/status")
+def google_status():
+    """Check if Google account is connected."""
+    from google_integration import get_connection_status
+    return get_connection_status()
+
+@app.post("/api/google/connect")
+def google_connect():
+    """Start Google OAuth flow. Returns the auth URL."""
+    from google_integration import start_oauth_flow
+    result = start_oauth_flow()
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.get("/api/google/callback")
+def google_callback(code: str = None, error: str = None):
+    """OAuth callback — exchanges auth code for tokens."""
+    if error:
+        return {"error": error}
+    if not code:
+        raise HTTPException(status_code=400, detail="No authorization code received.")
+    from google_integration import complete_oauth_flow
+    result = complete_oauth_flow(code)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    add_event("success", "google", f"Google account connected: {result.get('email')}")
+    # Return a simple HTML page that closes itself / redirects to dashboard
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(f"""
+        <html><body style="font-family:sans-serif;text-align:center;padding:3rem">
+        <h2>✅ Google Connected</h2>
+        <p>Signed in as <strong>{result.get('email')}</strong></p>
+        <p>You can close this tab and return to the Open Brain dashboard.</p>
+        <script>setTimeout(()=>window.close(), 3000)</script>
+        </body></html>
+    """)
+
+@app.post("/api/google/disconnect")
+def google_disconnect():
+    """Disconnect Google account."""
+    from google_integration import disconnect
+    result = disconnect()
+    add_event("info", "google", "Google account disconnected")
+    return result
+
+@app.post("/api/google/sync/drive")
+def google_sync_drive():
+    """Sync new/modified files from Google Drive."""
+    from google_integration import sync_drive
+    add_event("info", "google", "Starting Google Drive sync...")
+    result = sync_drive()
+    if "error" in result:
+        add_event("error", "google", f"Drive sync failed: {result['error']}")
+    else:
+        add_event("success", "google", f"Drive sync: {len(result.get('ingested', []))} files ingested, {result.get('files_checked', 0)} checked")
+    return result
+
+@app.post("/api/google/sync/gmail")
+def google_sync_gmail():
+    """Sync recent emails from Gmail."""
+    from google_integration import sync_gmail
+    add_event("info", "google", "Starting Gmail sync...")
+    result = sync_gmail()
+    if "error" in result:
+        add_event("error", "google", f"Gmail sync failed: {result['error']}")
+    else:
+        add_event("success", "google", f"Gmail sync: {len(result.get('ingested', []))} emails ingested, {result.get('emails_checked', 0)} checked")
+    return result
+
+# --- WhatsApp Import ---
+
+class WhatsAppImport(BaseModel):
+    chat_name: str = "WhatsApp Chat"
+
+@app.post("/api/whatsapp/import")
+async def whatsapp_import(file: UploadFile = File(...), chat_name: str = Form("WhatsApp Chat")):
+    """Import a WhatsApp chat export (.txt file)."""
+    try:
+        content = await file.read()
+        text = content.decode("utf-8", errors="replace")
+        from whatsapp_import import ingest_whatsapp_export
+        add_event("info", "whatsapp", f"Importing WhatsApp chat: {chat_name} ({file.filename})")
+        result = ingest_whatsapp_export(text, chat_name)
+        if result.get("error"):
+            add_event("error", "whatsapp", f"WhatsApp import failed: {result['error']}")
+        else:
+            add_event("success", "whatsapp", f"WhatsApp: {result['ingested']} message groups ingested from '{chat_name}' ({result['total_messages']} messages)")
+        return result
+    except Exception as e:
+        add_event("error", "whatsapp", f"WhatsApp import failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

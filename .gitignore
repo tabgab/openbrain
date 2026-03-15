@@ -42,6 +42,12 @@ Thumbs.db
 # --- Docker ---
 openbrain-db-data/
 
+# --- Google Integration ---
+google_credentials.json
+google_token.json
+google_drive_state.json
+google_gmail_state.json
+
 # --- Misc ---
 *.log
 *.tmp
