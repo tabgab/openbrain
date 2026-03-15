@@ -76,7 +76,8 @@ def _dump_table_to_json(table: str) -> list[dict]:
             record = {}
             for col, val in zip(cols, row):
                 if col == "embedding" and val is not None:
-                    record[col] = val.tolist() if hasattr(val, "tolist") else list(val)
+                    raw = val.tolist() if hasattr(val, "tolist") else list(val)
+                    record[col] = [round(v, 6) for v in raw]
                 elif isinstance(val, datetime.datetime):
                     record[col] = val.isoformat()
                 elif hasattr(val, "__str__") and not isinstance(val, (str, int, float, bool, list, dict, type(None))):
@@ -166,12 +167,14 @@ def create_backup(password: str, include_secrets: bool = True) -> tuple[bytes, d
     project_root = os.path.dirname(os.path.dirname(__file__))
     tar_buffer = io.BytesIO()
 
-    with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:
+    import gzip
+    gz_fileobj = gzip.GzipFile(fileobj=tar_buffer, mode="wb", compresslevel=9)
+    with tarfile.open(fileobj=gz_fileobj, mode="w") as tar:
         # 1. Database tables
         for table in ("memories", "vault"):
             try:
                 rows = _dump_table_to_json(table)
-                data = json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")
+                data = json.dumps(rows, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
                 info = tarfile.TarInfo(name=f"db/{table}.json")
                 info.size = len(data)
                 tar.addfile(info, io.BytesIO(data))
@@ -217,6 +220,7 @@ def create_backup(password: str, include_secrets: bool = True) -> tuple[bytes, d
         info.size = len(manifest_data)
         tar.addfile(info, io.BytesIO(manifest_data))
 
+    gz_fileobj.close()  # flush gzip stream before reading
     tar_bytes = tar_buffer.getvalue()
     encrypted = _encrypt(tar_bytes, password)
 
