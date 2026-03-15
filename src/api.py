@@ -602,6 +602,20 @@ def google_gmail_ingest(payload: dict):
         add_event("success", "google", f"Gmail: {len(result.get('ingested', []))} emails ingested from {email}")
     return result
 
+# Gmail: preview full email body
+@app.post("/api/google/gmail/preview")
+def google_gmail_preview(payload: dict):
+    """Fetch the full body of a single Gmail message for reading before ingest."""
+    email = payload.get("email", "")
+    message_id = payload.get("message_id", "")
+    if not email or not message_id:
+        raise HTTPException(status_code=400, detail="Email and message_id are required.")
+    from google_integration import preview_gmail_message
+    result = preview_gmail_message(email, message_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
 # --- WhatsApp Import ---
 
 class WhatsAppImport(BaseModel):

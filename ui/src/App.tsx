@@ -7,7 +7,7 @@ import {
   Terminal, ArrowRight, Save, RefreshCw, ListTree, Bot,
   Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles,
   Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw,
-  Cloud, Mail, Link, Unlink, Phone
+  Cloud, Mail, Link, Phone
 } from 'lucide-react';
 
 const API = 'http://localhost:8000/api';
@@ -995,6 +995,9 @@ function GoogleIntegrationSection() {
   const [gmailSelected, setGmailSelected] = useState<Set<string>>(new Set());
   const [gmailSearching, setGmailSearching] = useState(false);
   const [gmailIngesting, setGmailIngesting] = useState(false);
+  const [expandedEmail, setExpandedEmail] = useState<string | null>(null);
+  const [emailPreview, setEmailPreview] = useState<{ id: string; from: string; to: string; subject: string; date: string; body: string } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -1096,6 +1099,16 @@ function GoogleIntegrationSection() {
 
   const toggleDrive = (id: string) => setDriveSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const toggleGmail = (id: string) => setGmailSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const previewEmail = async (msgId: string) => {
+    if (expandedEmail === msgId) { setExpandedEmail(null); setEmailPreview(null); return; }
+    setExpandedEmail(msgId); setEmailPreview(null); setLoadingPreview(true);
+    try {
+      const res = await axios.post(`${API}/google/gmail/preview`, { email: activeAccount, message_id: msgId });
+      setEmailPreview(res.data);
+    } catch { setEmailPreview({ id: msgId, from: '', to: '', subject: '', date: '', body: '(failed to load preview)' }); }
+    finally { setLoadingPreview(false); }
+  };
   const selectAllDrive = () => setDriveSelected(new Set(driveFiles.filter(f => !f.already_synced).map(f => f.id)));
   const selectAllGmail = () => setGmailSelected(new Set(gmailMsgs.filter(m => !m.already_synced).map(m => m.id)));
 
@@ -1117,11 +1130,20 @@ function GoogleIntegrationSection() {
         <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', marginBottom: '1rem', fontSize: '0.85rem' }}>
           <strong>Setup required:</strong>
           <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.6 }}>
-            <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Cloud Console</a></li>
-            <li>Create a project &rarr; enable <strong>Google Drive API</strong> and <strong>Gmail API</strong></li>
-            <li>Go to <strong>Credentials</strong> &rarr; Create <strong>OAuth 2.0 Client ID</strong> (Web application)</li>
-            <li>Add redirect URI: <code>http://localhost:8000/api/google/callback</code></li>
-            <li>Download the JSON and save as <code>google_credentials.json</code> in the project root</li>
+            <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Cloud Console</a> and create a project (or select an existing one)</li>
+            <li>In the left menu, go to <strong>APIs & Services</strong> &rarr; <strong>Library</strong>, search for and enable both <strong>Google Drive API</strong> and <strong>Gmail API</strong></li>
+            <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Credentials</strong> &rarr; click <strong>+ Create Credentials</strong> &rarr; select <strong>OAuth client ID</strong></li>
+            <li>
+              Set application type to <strong>Web application</strong> and give it a name (e.g. "Open Brain")
+              <ul style={{ margin: '0.3rem 0 0.3rem 1rem', lineHeight: 1.5 }}>
+                <li>Scroll down to <strong>Authorized redirect URIs</strong></li>
+                <li>Click <strong>+ Add URI</strong></li>
+                <li>Paste exactly: <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>http://localhost:8000/api/google/callback</code></li>
+                <li>Click <strong>Create</strong></li>
+              </ul>
+            </li>
+            <li>On the confirmation dialog, click <strong>Download JSON</strong> &mdash; save the file as <code>google_credentials.json</code> in the Open Brain project root folder</li>
+            <li>If prompted to configure a <strong>Consent Screen</strong>, choose <strong>External</strong>, fill in the app name and your email, then add yourself as a test user under <strong>Test users</strong></li>
             <li>Restart the backend, then click <strong>Add Account</strong> above</li>
           </ol>
         </div>
@@ -1231,22 +1253,46 @@ function GoogleIntegrationSection() {
                 </button>
               </div>
               {gmailMsgs.length > 0 && (
-                <div style={{ maxHeight: '250px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
+                <div style={{ maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                     <button onClick={selectAllGmail} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all new</button>
                     <span style={{ marginLeft: 'auto' }}>{gmailSelected.size} selected</span>
                   </div>
                   {gmailMsgs.map(m => (
-                    <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
-                      borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: m.already_synced ? 0.5 : 1 }}>
-                      <input type="checkbox" checked={gmailSelected.has(m.id)} onChange={() => toggleGmail(m.id)} disabled={m.already_synced} style={{ accentColor: 'var(--accent)' }} />
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <strong style={{ fontSize: '0.8rem' }}>{m.from?.split('<')[0]?.trim()}</strong>{' '}
-                        <span style={{ color: 'var(--text-secondary)' }}>{m.subject}</span>
-                      </span>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{m.date?.slice(0, 16)}</span>
-                      {m.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
-                    </label>
+                    <div key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: m.already_synced ? 0.5 : 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={gmailSelected.has(m.id)} onChange={() => toggleGmail(m.id)} disabled={m.already_synced}
+                          style={{ accentColor: 'var(--accent)' }} onClick={e => e.stopPropagation()} />
+                        <span onClick={() => previewEmail(m.id)} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                          <strong style={{ fontSize: '0.8rem' }}>{m.from?.split('<')[0]?.trim()}</strong>{' '}
+                          <span style={{ color: 'var(--text-secondary)' }}>{m.subject}</span>
+                        </span>
+                        <button onClick={() => previewEmail(m.id)} title="Preview email"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.1rem', color: expandedEmail === m.id ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                          <Eye size={13} />
+                        </button>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{m.date?.slice(0, 16)}</span>
+                        {m.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
+                      </div>
+                      {expandedEmail === m.id && (
+                        <div style={{ padding: '0.5rem 0.6rem 0.6rem 2rem', fontSize: '0.8rem', background: 'rgba(59,130,246,0.04)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                          {loadingPreview ? (
+                            <span style={{ color: 'var(--text-secondary)' }}><Loader2 size={12} className="animate-spin" style={{ display: 'inline' }} /> Loading...</span>
+                          ) : emailPreview ? (
+                            <div>
+                              <div style={{ marginBottom: '0.3rem', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                                <strong>From:</strong> {emailPreview.from}<br />
+                                {emailPreview.to && <><strong>To:</strong> {emailPreview.to}<br /></>}
+                                <strong>Date:</strong> {emailPreview.date}
+                              </div>
+                              <div style={{ whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', lineHeight: 1.4, color: 'var(--text-primary)', padding: '0.3rem 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                {emailPreview.body}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

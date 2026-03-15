@@ -458,6 +458,35 @@ def ingest_gmail_messages(email: str, message_ids: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Gmail — Preview (read full message before ingesting)
+# ---------------------------------------------------------------------------
+
+def preview_gmail_message(email: str, message_id: str) -> dict:
+    """Fetch the full body of a single Gmail message for reading."""
+    creds = get_credentials_for(email)
+    if not creds:
+        return {"error": f"Account {email} not connected."}
+
+    service = build("gmail", "v1", credentials=creds)
+    try:
+        msg = service.users().messages().get(
+            userId="me", id=message_id, format="full"
+        ).execute()
+        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+        body = _extract_email_body(msg.get("payload", {}))
+        return {
+            "id": message_id,
+            "from": headers.get("from", ""),
+            "to": headers.get("to", ""),
+            "subject": headers.get("subject", "(no subject)"),
+            "date": headers.get("date", ""),
+            "body": body or "(no body text)",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # Gmail body extraction
 # ---------------------------------------------------------------------------
 
