@@ -156,6 +156,11 @@ def list_accounts() -> list[dict]:
     return accounts
 
 
+def get_all_accounts() -> list[dict]:
+    """Alias for list_accounts — used by MCP server tools."""
+    return list_accounts()
+
+
 def get_status() -> dict:
     """Overall status: credentials file exists + list of accounts."""
     has_creds = _CREDENTIALS_FILE.exists()

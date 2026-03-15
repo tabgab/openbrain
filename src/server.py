@@ -207,6 +207,216 @@ def get_vault_secret(key: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Gmail tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def search_gmail(query: str, account_email: str = "", label: str = "", newer_than: str = "30d", limit: int = 10) -> str:
+    """
+    Search Gmail messages across connected Google accounts.
+    Returns matching emails with sender, subject, date, and snippet.
+    Use label to filter by Gmail label (e.g. 'INBOX', 'STARRED', or a custom label ID).
+    Use newer_than for time range (e.g. '7d', '30d', '1y').
+    If account_email is empty, uses the first connected account.
+    """
+    from google_integration import get_all_accounts, search_gmail as _search
+
+    accounts = get_all_accounts()
+    if not accounts:
+        return "No Google accounts connected. Connect an account via the dashboard first."
+
+    email = account_email or accounts[0]["email"]
+    result = _search(email=email, query=query, label=label, newer_than=newer_than, max_results=limit)
+    if "error" in result:
+        return f"Gmail search error: {result['error']}"
+
+    messages = result.get("messages", [])
+    if not messages:
+        return f"No emails found matching '{query}'."
+
+    lines = []
+    for m in messages:
+        synced = " [in brain]" if m.get("already_synced") else ""
+        lines.append(f"- [{m['date']}] From: {m['from']} — {m['subject']}{synced}\n  {m['snippet'][:120]}  (ID: {m['id']})")
+    return f"Found {len(messages)} emails:\n\n" + "\n".join(lines)
+
+
+@mcp.tool()
+def read_gmail(message_id: str, account_email: str = "") -> str:
+    """
+    Read the full content of a specific Gmail message by its ID.
+    Returns sender, recipient, subject, date, and body text.
+    If account_email is empty, uses the first connected account.
+    """
+    from google_integration import get_all_accounts, preview_gmail_message
+
+    accounts = get_all_accounts()
+    if not accounts:
+        return "No Google accounts connected."
+
+    email = account_email or accounts[0]["email"]
+    result = preview_gmail_message(email, message_id)
+    if "error" in result:
+        return f"Error reading email: {result['error']}"
+
+    return (
+        f"From: {result['from']}\n"
+        f"To: {result['to']}\n"
+        f"Subject: {result['subject']}\n"
+        f"Date: {result['date']}\n"
+        f"Images: {result.get('image_count', 0)}\n\n"
+        f"{result['body']}"
+    )
+
+
+@mcp.tool()
+def ingest_gmail(message_ids: List[str], account_email: str = "", include_images: bool = False) -> str:
+    """
+    Ingest one or more Gmail messages into the Open Brain by their IDs.
+    Set include_images=True to run vision OCR on image attachments.
+    If account_email is empty, uses the first connected account.
+    """
+    from google_integration import get_all_accounts, ingest_gmail_messages
+
+    accounts = get_all_accounts()
+    if not accounts:
+        return "No Google accounts connected."
+
+    email = account_email or accounts[0]["email"]
+    result = ingest_gmail_messages(email, message_ids, include_images=include_images)
+    if "error" in result:
+        return f"Gmail ingest error: {result['error']}"
+
+    n = len(result.get("ingested", []))
+    e = len(result.get("errors", []))
+    return f"Ingested {n} email(s){f', {e} error(s)' if e else ''} into the Open Brain."
+
+
+# ---------------------------------------------------------------------------
+# Calendar tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def search_calendar(query: str = "", account_email: str = "", time_min: str = "", time_max: str = "", limit: int = 20) -> str:
+    """
+    Search calendar events across connected Google accounts.
+    Returns upcoming and recent events with time, location, and calendar name.
+    Recurring events are deduplicated and shown once with recurrence info.
+    If account_email is empty, uses the first connected account.
+    """
+    from google_integration import get_all_accounts, scan_calendar_events
+
+    accounts = get_all_accounts()
+    if not accounts:
+        return "No Google accounts connected. Connect an account via the dashboard first."
+
+    email = account_email or accounts[0]["email"]
+    result = scan_calendar_events(email=email, time_min=time_min, time_max=time_max, max_results=limit)
+    if "error" in result:
+        return f"Calendar error: {result['error']}"
+
+    events = result.get("events", [])
+    if query:
+        q = query.lower()
+        events = [e for e in events if q in e["summary"].lower() or q in e.get("location", "").lower() or q in e.get("description", "").lower()]
+
+    if not events:
+        return f"No calendar events found{f' matching {query!r}' if query else ''}."
+
+    lines = []
+    for ev in events:
+        synced = " [in brain]" if ev.get("already_synced") else ""
+        recurring = f" [{ev['recurrence_info']}]" if ev.get("is_recurring") and ev.get("recurrence_info") else ""
+        loc = f" @ {ev['location']}" if ev.get("location") else ""
+        lines.append(f"- {ev['start'][:16]} — {ev['summary']}{loc}{recurring}{synced}\n  Calendar: {ev['calendar']}  (ID: {ev['id']})")
+    return f"Found {len(events)} events:\n\n" + "\n".join(lines)
+
+
+@mcp.tool()
+def read_calendar_event(event_id: str, account_email: str = "") -> str:
+    """
+    Read the full details of a specific calendar event by its ID.
+    Returns time, location, attendees, description, and recurrence info.
+    If account_email is empty, uses the first connected account.
+    """
+    from google_integration import get_all_accounts, get_credentials_for, _fetch_event, _parse_event_datetime
+    from googleapiclient.discovery import build
+
+    accounts = get_all_accounts()
+    if not accounts:
+        return "No Google accounts connected."
+
+    email = account_email or accounts[0]["email"]
+    creds = get_credentials_for(email)
+    if not creds:
+        return f"Account {email} not connected."
+
+    service = build("calendar", "v3", credentials=creds)
+    ev = _fetch_event(service, event_id)
+    if not ev:
+        return f"Event {event_id} not found."
+
+    start = _parse_event_datetime(ev.get("start", {}))
+    end = _parse_event_datetime(ev.get("end", {}))
+    summary = ev.get("summary", "(no title)")
+    location = ev.get("location", "")
+    description = ev.get("description", "")
+    organizer = ev.get("organizer", {}).get("email", "")
+    attendees = [a.get("email", "") for a in ev.get("attendees", [])]
+    recurrence = ev.get("recurrence", [])
+
+    parts = [f"Event: {summary}", f"When: {start} — {end}"]
+    if location:
+        parts.append(f"Where: {location}")
+    if organizer:
+        parts.append(f"Organizer: {organizer}")
+    if attendees:
+        parts.append(f"Attendees: {', '.join(attendees[:20])}")
+    if recurrence:
+        parts.append(f"Recurrence: {'; '.join(recurrence)}")
+    if description:
+        parts.append(f"\n{description}")
+    return "\n".join(parts)
+
+
+@mcp.tool()
+def ingest_calendar_events(event_ids: List[str], account_email: str = "") -> str:
+    """
+    Ingest one or more calendar events into the Open Brain by their IDs.
+    Events are saved as searchable memories with metadata.
+    If account_email is empty, uses the first connected account.
+    """
+    from google_integration import get_all_accounts, ingest_calendar_events as _ingest
+
+    accounts = get_all_accounts()
+    if not accounts:
+        return "No Google accounts connected."
+
+    email = account_email or accounts[0]["email"]
+    result = _ingest(email, event_ids)
+    if "error" in result:
+        return f"Calendar ingest error: {result['error']}"
+
+    n = len(result.get("ingested", []))
+    e = len(result.get("errors", []))
+    return f"Ingested {n} calendar event(s){f', {e} error(s)' if e else ''} into the Open Brain."
+
+
+@mcp.tool()
+def list_google_accounts() -> str:
+    """
+    Lists all connected Google accounts with their email addresses.
+    Useful to know which account_email to use with Gmail and Calendar tools.
+    """
+    from google_integration import get_all_accounts
+    accounts = get_all_accounts()
+    if not accounts:
+        return "No Google accounts connected. Connect one via the dashboard."
+    lines = [f"- {a['email']} (connected {a.get('connected_at', 'unknown')})" for a in accounts]
+    return f"{len(accounts)} connected account(s):\n" + "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

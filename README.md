@@ -16,8 +16,9 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **MCP Server** — Full Model Context Protocol support (stdio + SSE) so other AI systems can use your brain as a tool
 - **PII Scrubbing** — Automatic detection and redaction of secrets, API keys, credit cards, SSNs
 - **Secure Vault** — Sensitive information stored separately, never exposed in search results
-- **Google Drive Sync** — OAuth 2.0 connection to Google Drive; automatically ingest new/modified documents (Docs, Sheets, PDFs, etc.)
-- **Gmail Sync** — Pull recent emails from Gmail and store them as searchable memories with sender/subject metadata
+- **Google Drive Sync** — OAuth 2.0 connection to Google Drive; search, filter, preview, and selectively ingest documents (Docs, Sheets, PDFs, etc.)
+- **Gmail Integration** — Search, preview, and ingest emails with optional image OCR; filter by label (including custom labels)
+- **Google Calendar** — Scan calendars with week/month/list views, per-calendar color-coded toggles, recurring event deduplication, and selective ingestion
 - **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
 - **Dashboard Chat** — Chat with your brain directly from the web dashboard, same auto-detect logic as Telegram
 - **Web Dashboard** — Beautiful React UI for browsing memories, uploading documents, chatting, configuring models, and viewing logs
@@ -154,30 +155,44 @@ The bot auto-detects questions using heuristics + LLM classification — no pref
 
 ---
 
-## ☁️ Google Drive & Gmail
+## ☁️ Google Drive, Gmail & Calendar
 
-Sync files from Google Drive and emails from Gmail directly into your Open Brain.
+Sync files from Google Drive, emails from Gmail, and events from Google Calendar directly into your Open Brain.
 
 ### Setup
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a project (or use an existing one)
-3. Enable the **Google Drive API** and **Gmail API**
+3. Enable the **Google Drive API**, **Gmail API**, and **Google Calendar API**
 4. Go to **Credentials** → **Create Credentials** → **OAuth 2.0 Client ID**
    - Application type: **Web application**
    - Authorized redirect URI: `http://localhost:8000/api/google/callback`
 5. Download the JSON file and save it as `google_credentials.json` in the project root
-6. In the dashboard, go to **Settings → Google Drive & Gmail** and click **Connect Google Account**
+6. In the dashboard, go to **Settings → Google Drive, Gmail & Calendar** and click **Add Account**
 7. Authorize in the browser — you'll be redirected back automatically
+8. Add your Google email(s) as **test users** in the OAuth consent screen (required for external apps)
 
-### Usage
+### Google Drive
 
-Once connected, use the **Sync Google Drive** and **Sync Gmail** buttons in Settings. Each sync:
+Search and filter files by name, type, and date. Preview files before ingesting. Select individual files or bulk-select and ingest into your brain.
 
-- **Drive**: Fetches new/modified files since last sync, downloads them, and ingests through the document pipeline (PDF, Docs, Sheets, etc.)
-- **Gmail**: Fetches recent emails, extracts body text, PII-scrubs, categorizes, and stores as memories with sender/subject metadata
+### Gmail
 
-Sync state is tracked locally — only new items are ingested on each run.
+Search emails with filters (sender, subject, label, date range). All labels are shown including custom ones. Preview email content inline. Ingest with optional image attachment OCR via vision model.
+
+### Google Calendar
+
+Scan all connected calendars with three view modes:
+- **Week view** — 7-day grid with color-coded event chips
+- **Month view** — Full month grid with overflow indicators
+- **List view** — Flat searchable list with inline preview
+
+Features:
+- **Per-calendar toggle chips** — Click to show/hide calendars, colored to match Google Calendar colors
+- **Recurring event deduplication** — Recurring events collapsed into one entry with pattern info (Weekly, Biweekly, Monthly, etc.)
+- **"In Brain" indicators** — Already-ingested events clearly marked in all views
+- **Startup scan prompt** — First scan covers 12 months; subsequent scans cover the current month
+- **Selective ingestion** — Pick individual events or select all new
 
 ---
 
@@ -196,7 +211,7 @@ Messages are grouped by sender (consecutive messages merged), PII-scrubbed, cate
 
 ## 🔌 MCP Server
 
-Other AI systems can connect to Open Brain as an MCP server with **10 tools**:
+Other AI systems can connect to Open Brain as an MCP server with **17 tools**:
 
 ### Memory Tools
 - `save_memory` — Store a fact/note (auto-categorized, embedded, PII-scrubbed)
@@ -211,6 +226,19 @@ Other AI systems can connect to Open Brain as an MCP server with **10 tools**:
 
 ### Vault Tools
 - `save_vault_secret` / `get_vault_secret` — Secure secret storage
+
+### Gmail Tools
+- `search_gmail` — Search emails by query, label, date range
+- `read_gmail` — Read full content of a specific email
+- `ingest_gmail` — Ingest emails into the brain (with optional image OCR)
+
+### Calendar Tools
+- `search_calendar` — Search calendar events by query, date range
+- `read_calendar_event` — Read full details of a specific event
+- `ingest_calendar_events` — Ingest events into the brain
+
+### Account Tools
+- `list_google_accounts` — List connected Google accounts
 
 ### Connecting via stdio (Windsurf, Claude Desktop, Cursor)
 
@@ -243,7 +271,7 @@ Access at **http://localhost:5173** after starting services.
 
 - **Dashboard** — Browse memories, edit/delete, upload documents
 - **Chat** — Conversational interface to ask questions or store memories (same as Telegram bot)
-- **Settings** — Configure model roles, API keys, database, Telegram token, backup & restore, Google sync, WhatsApp import
+- **Settings** — Configure model roles, API keys, database, Telegram token, backup & restore, Google Drive/Gmail/Calendar, WhatsApp import
 - **Logs** — Real-time system event log from all services
 
 ---
@@ -276,7 +304,7 @@ openbrain/
 │   ├── llm.py              # Multi-model LLM client (roles, embeddings, vision)
 │   ├── ingest.py           # Document ingestion (PDF, images, Word, Excel)
 │   ├── backup.py           # Encrypted backup & restore (AES-256-GCM)
-│   ├── google_integration.py # Google Drive & Gmail OAuth + sync
+│   ├── google_integration.py # Google Drive, Gmail & Calendar OAuth + sync
 │   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
 │   ├── scrubber.py         # PII detection and redaction
 │   ├── server.py           # MCP server (stdio + SSE)

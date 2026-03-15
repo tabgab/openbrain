@@ -982,7 +982,7 @@ function IngestTab({ onRefresh }: { onRefresh: () => void }) {
   );
 }
 
-// --- Google Drive & Gmail (multi-account, search/filter/preview/ingest) ---
+// --- Google Drive, Gmail & Calendar (multi-account, search/filter/preview/ingest) ---
 interface GoogleAccount { email: string; connected: boolean; connected_at?: string; drive_last_sync?: string; gmail_last_sync?: string; }
 interface DriveFile { id: string; name: string; mimeType: string; modifiedTime: string; size: string; already_synced: boolean; }
 interface GmailMsg { id: string; from: string; subject: string; date: string; snippet: string; already_synced: boolean; }
@@ -1192,6 +1192,9 @@ function GoogleIntegrationSection() {
     const s = new Set(prev); s.has(calId) ? s.delete(calId) : s.add(calId); return s;
   });
 
+  const calColorMap = Object.fromEntries(calCalendars.map(c => [c.id, c.color]));
+  const getCalColor = (ev: CalEvent) => calColorMap[ev.calendar_id] || 'var(--accent)';
+
   // Calendar view helpers
   const getWeekDays = (d: Date): Date[] => {
     const start = new Date(d); start.setDate(start.getDate() - start.getDay() + 1); // Monday
@@ -1255,7 +1258,7 @@ function GoogleIntegrationSection() {
     <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
         <Cloud size={20} color="var(--accent)" />
-        <h2 style={{ margin: 0, flex: 1 }}>Google Drive & Gmail</h2>
+        <h2 style={{ margin: 0, flex: 1 }}>Google Drive, Gmail & Calendar</h2>
         <button className="btn" onClick={connect} disabled={connecting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem' }}>
           {connecting ? <Loader2 size={13} className="animate-spin" /> : <Link size={13} />}
           {connecting ? 'Authorizing...' : 'Add Account'}
@@ -1679,8 +1682,8 @@ function GoogleIntegrationSection() {
                                 {dayEvents.map(ev => (
                                   <div key={ev.id} onClick={() => setCalExpandedEvent(calExpandedEvent?.id === ev.id ? null : ev)}
                                     style={{ padding: '0.15rem 0.25rem', borderRadius: '3px', fontSize: '0.68rem', cursor: 'pointer', lineHeight: 1.3,
-                                      background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.12)',
-                                      borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : ev.is_recurring ? '#a78bfa' : 'var(--accent)'}`,
+                                      background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : `${getCalColor(ev)}18`,
+                                      borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : getCalColor(ev)}`,
                                       opacity: ev.already_synced ? 0.6 : 1 }}>
                                     <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.already_synced && '✓ '}{ev.summary}</div>
                                     <div style={{ color: 'var(--text-secondary)', fontSize: '0.62rem' }}>
@@ -1722,8 +1725,8 @@ function GoogleIntegrationSection() {
                                   {dayEvents.slice(0, 3).map(ev => (
                                     <div key={ev.id} onClick={() => setCalExpandedEvent(calExpandedEvent?.id === ev.id ? null : ev)}
                                       style={{ padding: '0.05rem 0.2rem', borderRadius: '2px', fontSize: '0.6rem', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                        background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.12)',
-                                        borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : ev.is_recurring ? '#a78bfa' : 'var(--accent)'}` }}>
+                                        background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : `${getCalColor(ev)}18`,
+                                        borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : getCalColor(ev)}` }}>
                                       {ev.already_synced ? '✓ ' : ''}{ev.summary}
                                     </div>
                                   ))}
