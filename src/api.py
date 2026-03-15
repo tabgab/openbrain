@@ -278,10 +278,30 @@ def chat_endpoint(payload: ChatMessage):
             n_mem = len([s for s in sources if s["source_type"] not in ("google_calendar_live", "gmail_live")])
             n_ext = len(sources) - n_mem
             add_event("success", "chat", f"Answered question (used {n_mem} memories + {n_ext} live sources)")
+
+            # Build thinking steps for UI
+            thinking_steps = []
+            thinking_steps.append(f"Searched stored memories — found {len(results or [])} relevant results")
+            if plan:
+                if plan.get("reasoning"):
+                    thinking_steps.append(f"Search reasoning: {plan['reasoning']}")
+                if plan.get("search_calendar"):
+                    cal_queries = plan.get("calendar_queries", [])
+                    t_min = plan.get("calendar_time_min", "")[:10]
+                    t_max = plan.get("calendar_time_max", "")[:10]
+                    thinking_steps.append(f"Searched Google Calendar with queries: {cal_queries}" + (f" ({t_min} → {t_max})" if t_min else ""))
+                    thinking_steps.append(f"Found {len([s for s in sources if s['source_type'] == 'google_calendar_live'])} calendar events")
+                if plan.get("search_gmail"):
+                    gmail_queries = plan.get("gmail_queries", [])
+                    thinking_steps.append(f"Searched Gmail with queries: {gmail_queries}")
+                    thinking_steps.append(f"Found {len([s for s in sources if s['source_type'] == 'gmail_live'])} emails")
+            thinking_steps.append(f"Combined {n_mem} memories + {n_ext} live sources → sent to reasoning model")
+
             return {
                 "type": "answer",
                 "content": answer,
                 "sources": sources,
+                "thinking": thinking_steps,
             }
         except Exception as e:
             add_event("error", "chat", f"LLM answer failed: {e}")

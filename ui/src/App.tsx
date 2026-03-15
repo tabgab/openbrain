@@ -427,6 +427,7 @@ interface ChatEntry {
   summary?: string;
   memory_id?: string;
   sources?: { id: string; source_type: string; summary: string }[];
+  thinking?: string[];
   mode?: string;
   timestamp: Date;
 }
@@ -463,6 +464,7 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
         summary: data.summary,
         memory_id: data.memory_id,
         sources: data.sources,
+        thinking: data.thinking,
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, brainMsg]);
@@ -556,6 +558,23 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
                   }}>
                     {msg.type === 'answer' ? <><Search size={10} /> Answer</> : <><CheckCircle2 size={10} /> Stored</>}
                   </div>
+                )}
+
+                {/* Collapsible thinking process */}
+                {msg.thinking && msg.thinking.length > 0 && (
+                  <details style={{ marginBottom: '0.4rem' }}>
+                    <summary style={{ cursor: 'pointer', fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.3rem', userSelect: 'none' }}>
+                      <Cpu size={11} /> Thinking process ({msg.thinking.length} steps)
+                    </summary>
+                    <div style={{ marginTop: '0.3rem', padding: '0.4rem 0.6rem', borderRadius: '6px', background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)', fontSize: '0.75rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                      {msg.thinking.map((step, si) => (
+                        <div key={si} style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start', marginBottom: si < msg.thinking!.length - 1 ? '0.2rem' : 0 }}>
+                          <span style={{ color: 'rgba(139,92,246,0.6)', fontWeight: 600, flexShrink: 0 }}>{si + 1}.</span>
+                          <span>{step}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 )}
 
                 <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.9rem', lineHeight: 1.5 }}>{msg.content}</div>
