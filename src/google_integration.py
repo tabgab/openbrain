@@ -825,6 +825,7 @@ def scan_calendar_events(email: str, time_min: str = "", time_max: str = "",
             "location": location,
             "description": description[:500] if description else "",
             "calendar": cal_name,
+            "calendar_id": first.get("_calendar_id", ""),
             "is_recurring": is_recurring,
             "occurrence_count": occurrence_count,
             "recurrence_info": recurrence_info,
@@ -834,6 +835,15 @@ def scan_calendar_events(email: str, time_min: str = "", time_max: str = "",
     # Sort by start time
     events_out.sort(key=lambda e: e["start"] or "")
 
+    calendars_info = [
+        {
+            "id": c["id"],
+            "name": c.get("summary", c["id"]),
+            "color": c.get("backgroundColor", "#3b82f6"),
+        }
+        for c in calendars
+    ]
+
     return {
         "events": events_out,
         "total": len(events_out),
@@ -841,6 +851,7 @@ def scan_calendar_events(email: str, time_min: str = "", time_max: str = "",
         "time_min": time_min,
         "time_max": time_max,
         "calendars_scanned": len(calendars),
+        "calendars": calendars_info,
     }
 
 

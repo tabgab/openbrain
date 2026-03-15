@@ -986,7 +986,8 @@ function IngestTab({ onRefresh }: { onRefresh: () => void }) {
 interface GoogleAccount { email: string; connected: boolean; connected_at?: string; drive_last_sync?: string; gmail_last_sync?: string; }
 interface DriveFile { id: string; name: string; mimeType: string; modifiedTime: string; size: string; already_synced: boolean; }
 interface GmailMsg { id: string; from: string; subject: string; date: string; snippet: string; already_synced: boolean; }
-interface CalEvent { id: string; recurring_id: string; summary: string; start: string; end: string; location: string; description: string; calendar: string; is_recurring: boolean; occurrence_count: number; recurrence_info: string; already_synced: boolean; }
+interface CalEvent { id: string; recurring_id: string; summary: string; start: string; end: string; location: string; description: string; calendar: string; calendar_id: string; is_recurring: boolean; occurrence_count: number; recurrence_info: string; already_synced: boolean; }
+interface CalInfo { id: string; name: string; color: string; }
 
 function GoogleIntegrationSection() {
   const [hasCreds, setHasCreds] = useState(false);
@@ -1033,6 +1034,8 @@ function GoogleIntegrationSection() {
   const [calView, setCalView] = useState<'list' | 'week' | 'month'>('week');
   const [calViewDate, setCalViewDate] = useState(new Date());
   const [calExpandedEvent, setCalExpandedEvent] = useState<CalEvent | null>(null);
+  const [calCalendars, setCalCalendars] = useState<CalInfo[]>([]);
+  const [calEnabledCals, setCalEnabledCals] = useState<Set<string>>(new Set());
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -1150,6 +1153,9 @@ function GoogleIntegrationSection() {
     try {
       const res = await axios.post(`${API}/google/calendar/scan`, { email: activeAccount });
       setCalEvents(res.data.events || []);
+      const cals: CalInfo[] = res.data.calendars || [];
+      setCalCalendars(cals);
+      setCalEnabledCals(new Set(cals.map(c => c.id)));
       setCalScanInfo({ is_first_scan: res.data.is_first_scan, calendars_scanned: res.data.calendars_scanned });
       const newCount = (res.data.events || []).filter((e: CalEvent) => !e.already_synced).length;
       if (newCount === 0) setMsg({ ok: true, text: `Scanned ${res.data.calendars_scanned} calendars — all events already synced.` });
@@ -1175,9 +1181,16 @@ function GoogleIntegrationSection() {
   const toggleCal = (id: string) => setCalSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const selectAllNewCal = () => setCalSelected(new Set(calEvents.filter(e => !e.already_synced).map(e => e.id)));
 
-  const filteredCalEvents = calFilter
-    ? calEvents.filter(e => e.summary.toLowerCase().includes(calFilter.toLowerCase()) || e.calendar.toLowerCase().includes(calFilter.toLowerCase()) || e.location.toLowerCase().includes(calFilter.toLowerCase()))
+  const calendarFiltered = calEnabledCals.size > 0
+    ? calEvents.filter(e => calEnabledCals.has(e.calendar_id))
     : calEvents;
+  const filteredCalEvents = calFilter
+    ? calendarFiltered.filter(e => e.summary.toLowerCase().includes(calFilter.toLowerCase()) || e.calendar.toLowerCase().includes(calFilter.toLowerCase()) || e.location.toLowerCase().includes(calFilter.toLowerCase()))
+    : calendarFiltered;
+
+  const toggleCalendar = (calId: string) => setCalEnabledCals(prev => {
+    const s = new Set(prev); s.has(calId) ? s.delete(calId) : s.add(calId); return s;
+  });
 
   // Calendar view helpers
   const getWeekDays = (d: Date): Date[] => {
@@ -1551,6 +1564,28 @@ function GoogleIntegrationSection() {
                   ))}
                 </div>
               </div>
+
+              {/* Calendar toggle chips */}
+              {calCalendars.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  {calCalendars.map(cal => {
+                    const enabled = calEnabledCals.has(cal.id);
+                    const count = calEvents.filter(e => e.calendar_id === cal.id).length;
+                    return (
+                      <button key={cal.id} onClick={() => toggleCalendar(cal.id)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.2rem 0.55rem', borderRadius: '12px', fontSize: '0.72rem',
+                          border: `1px solid ${enabled ? cal.color : 'rgba(255,255,255,0.1)'}`,
+                          background: enabled ? `${cal.color}18` : 'transparent',
+                          color: enabled ? 'var(--text-primary)' : 'var(--text-secondary)',
+                          opacity: enabled ? 1 : 0.5, cursor: 'pointer', transition: 'all 0.15s' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: cal.color, display: 'inline-block', opacity: enabled ? 1 : 0.3 }} />
+                        {cal.name}
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Navigation bar for week/month views */}
               {calView !== 'list' && calEvents.length > 0 && (
