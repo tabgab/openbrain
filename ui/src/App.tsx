@@ -975,6 +975,7 @@ function GoogleIntegrationSection() {
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'drive' | 'gmail'>('drive');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
 
   // Drive state
   const [driveQuery, setDriveQuery] = useState('');
@@ -1126,9 +1127,20 @@ function GoogleIntegrationSection() {
         </button>
       </div>
 
-      {!hasCreds && (
+      {!hasCreds && !accounts.length && (
+        <div style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#f59e0b' }}>
+          <strong>google_credentials.json</strong> not found. Click <strong>Setup Guide</strong> below for instructions.
+        </div>
+      )}
+
+      <button onClick={() => setShowSetup(v => !v)}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '0.82rem', padding: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+        <HelpCircle size={13} /> {showSetup ? 'Hide' : 'Show'} Setup Guide
+      </button>
+
+      {showSetup && (
         <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', marginBottom: '1rem', fontSize: '0.85rem' }}>
-          <strong>Setup required:</strong>
+          <strong>Google OAuth Setup Guide:</strong>
           <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.6 }}>
             <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Cloud Console</a> and create a project (or select an existing one)</li>
             <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Library</strong>, search for and enable both <strong>Google Drive API</strong> and <strong>Gmail API</strong></li>

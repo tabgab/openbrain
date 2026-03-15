@@ -168,9 +168,10 @@ def disconnect(email: str) -> dict:
 
 
 def _get_user_email(creds: Credentials) -> str:
-    service = build("oauth2", "v2", credentials=creds)
-    info = service.userinfo().get().execute()
-    return info.get("email", "unknown")
+    """Get the email of the authenticated user via the Gmail API (already scoped)."""
+    service = build("gmail", "v1", credentials=creds)
+    profile = service.users().getProfile(userId="me").execute()
+    return profile.get("emailAddress", "unknown")
 
 
 # ---------------------------------------------------------------------------
