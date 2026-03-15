@@ -97,7 +97,8 @@ This starts PostgreSQL with pgvector. The schema is auto-initialized from `init-
 
 ```bash
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate          # macOS / Linux
+# venv\Scripts\activate.bat       # Windows
 pip install fastapi uvicorn python-multipart requests openai psycopg2-binary \
     python-dotenv pgvector numpy PyPDF2 python-docx openpyxl Pillow pymupdf mcp
 ```
@@ -113,7 +114,11 @@ cd ..
 ### 5. Start Everything
 
 ```bash
+# macOS / Linux
 ./start-openbrain.sh
+
+# Windows
+start-openbrain.bat
 ```
 
 This starts all four services:
@@ -125,7 +130,7 @@ This starts all four services:
 | MCP Server      | 3100  | SSE transport for AI agents        |
 | Web Dashboard   | 5173  | React UI (Vite dev server)         |
 
-To stop everything: `./stop-openbrain.sh`
+To stop everything: `./stop-openbrain.sh` (or `stop-openbrain.bat` on Windows)
 
 ---
 
@@ -237,8 +242,10 @@ openbrain/
 │   └── schema.sql          # PostgreSQL schema (memories + vault tables)
 ├── docker-compose.yml      # PostgreSQL + pgvector container
 ├── .env.example            # Template for configuration
-├── start-openbrain.sh      # Start all services
-├── stop-openbrain.sh       # Stop all services
+├── start-openbrain.sh      # Start all services (macOS/Linux)
+├── stop-openbrain.sh       # Stop all services (macOS/Linux)
+├── start-openbrain.bat     # Start all services (Windows)
+├── stop-openbrain.bat      # Stop all services (Windows)
 └── project_thesis.md       # Original project vision
 ```
 
