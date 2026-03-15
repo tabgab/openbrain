@@ -1131,30 +1131,27 @@ function GoogleIntegrationSection() {
           <strong>Setup required:</strong>
           <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.6 }}>
             <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Cloud Console</a> and create a project (or select an existing one)</li>
-            <li>
-              <strong style={{ color: 'var(--accent)' }}>Configure the OAuth consent screen first</strong> (required before creating credentials):
-              <ul style={{ margin: '0.3rem 0 0.3rem 1rem', lineHeight: 1.5 }}>
-                <li>Go to <strong>APIs & Services</strong> &rarr; <strong>OAuth consent screen</strong></li>
-                <li>Choose <strong>External</strong> user type &rarr; click <strong>Create</strong></li>
-                <li>Fill in <strong>App name</strong> (e.g. "Open Brain") and your <strong>email</strong> for both user support and developer contact</li>
-                <li>Click through Scopes (no changes needed) &rarr; continue to <strong>Test users</strong></li>
-                <li><strong style={{ color: '#f59e0b' }}>Add every Google email address you want to connect</strong> as a test user (e.g. your personal Gmail, work Gmail, etc.)</li>
-                <li>Click <strong>Save and Continue</strong></li>
-              </ul>
-              <span style={{ fontSize: '0.78rem', color: '#f59e0b' }}>Without this step you will get a "403: access_denied" error when signing in.</span>
-            </li>
             <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Library</strong>, search for and enable both <strong>Google Drive API</strong> and <strong>Gmail API</strong></li>
-            <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Credentials</strong> &rarr; click <strong>+ Create Credentials</strong> &rarr; select <strong>OAuth client ID</strong></li>
             <li>
-              Set application type to <strong>Web application</strong> and give it a name (e.g. "Open Brain")
+              Go to <strong>Google Auth Platform</strong> (or <strong>APIs & Services</strong> &rarr; <strong>OAuth consent screen</strong>), then in the left sidebar:
               <ul style={{ margin: '0.3rem 0 0.3rem 1rem', lineHeight: 1.5 }}>
-                <li>Scroll down to <strong>Authorized redirect URIs</strong></li>
-                <li>Click <strong>+ Add URI</strong></li>
+                <li>Click <strong>Branding</strong> &mdash; fill in <strong>App name</strong> (e.g. "Open Brain") and your email for support &amp; developer contact, then <strong>Save</strong></li>
+                <li><strong style={{ color: '#f59e0b' }}>Click Audience</strong> &mdash; if prompted, select <strong>External</strong>. Then under <strong>Test users</strong>, click <strong>+ Add users</strong></li>
+                <li><strong style={{ color: '#f59e0b' }}>Add every Google email you want to connect</strong> (personal Gmail, work Gmail, etc.) and <strong>Save</strong></li>
+              </ul>
+              <span style={{ fontSize: '0.78rem', color: '#f59e0b' }}>Without adding test users you will get "403: access_denied" when signing in.</span>
+            </li>
+            <li>
+              In the left sidebar, click <strong>Clients</strong> &rarr; <strong>+ Create Client</strong> (or go to <strong>Credentials</strong> &rarr; <strong>+ Create Credentials</strong> &rarr; <strong>OAuth client ID</strong>)
+              <ul style={{ margin: '0.3rem 0 0.3rem 1rem', lineHeight: 1.5 }}>
+                <li>Application type: <strong>Web application</strong></li>
+                <li>Name: e.g. "Open Brain"</li>
+                <li>Under <strong>Authorized redirect URIs</strong>, click <strong>+ Add URI</strong></li>
                 <li>Paste exactly: <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>http://localhost:8000/api/google/callback</code></li>
                 <li>Click <strong>Create</strong></li>
               </ul>
             </li>
-            <li>On the confirmation dialog, click <strong>Download JSON</strong> &mdash; save the file as <code>google_credentials.json</code> in the Open Brain project root folder</li>
+            <li>Click <strong>Download JSON</strong> (or use the download icon next to the client) &mdash; save the file as <code>google_credentials.json</code> in the Open Brain project root folder</li>
             <li>Restart the backend, then click <strong>Add Account</strong> above</li>
           </ol>
           <div style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
