@@ -39,13 +39,41 @@ def get_updates(offset=None):
         post_log("error", f"Network error polling Telegram: {e}")
         return {"ok": False, "result": []}
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, parse_mode=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         post_log("error", f"Failed to send reply to Telegram: {e}")
+
+def send_message_with_buttons(chat_id, text, buttons):
+    """Send a message with inline keyboard buttons. buttons = [[{text, callback_data}, ...]]"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "reply_markup": {"inline_keyboard": buttons},
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        post_log("error", f"Failed to send buttons to Telegram: {e}")
+
+def answer_callback_query(callback_query_id, text=""):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
+    payload = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception:
+        pass
+
+# Stores pending questions waiting for mode selection: {chat_id: question_text}
+pending_questions: dict[str, str] = {}
 
 def download_telegram_file(file_id: str) -> tuple[bytes, str]:
     """Download a file from Telegram by file_id. Returns (file_bytes, filename)."""
@@ -183,9 +211,33 @@ def is_question(text: str) -> bool:
     return False
 
 
-def handle_ask(chat_id, question):
+def prompt_search_mode(chat_id, question):
+    """Store the question and ask the user which search mode to use."""
+    pending_questions[chat_id] = question
+    send_message_with_buttons(
+        chat_id,
+        f"🔍 *How should I search for the answer?*\n\n"
+        f"_{question[:100]}{'...' if len(question) > 100 else ''}_",
+        [[
+            {"text": "🧠 Memory Only", "callback_data": "search_mode:memory_only"},
+            {"text": "🔎 Advanced Search", "callback_data": "search_mode:advanced"},
+        ]],
+    )
+
+def handle_search_mode_callback(chat_id, callback_query_id, search_mode):
+    """Handle the user's search mode selection from inline buttons."""
+    question = pending_questions.pop(chat_id, None)
+    if not question:
+        answer_callback_query(callback_query_id, "No pending question found.")
+        return
+    label = "Memory Only" if search_mode == "memory_only" else "Advanced Search"
+    answer_callback_query(callback_query_id, f"Using {label}...")
+    send_message(chat_id, f"⏳ Searching ({label})...")
+    handle_ask(chat_id, question, search_mode=search_mode)
+
+def handle_ask(chat_id, question, search_mode="advanced"):
     """Search the brain for relevant memories (+ Calendar/Gmail) and answer using the LLM."""
-    post_log("info", f"Question from chat_id={chat_id}: '{question[:60]}...'")
+    post_log("info", f"Question from chat_id={chat_id} (mode={search_mode}): '{question[:60]}...'")
 
     try:
         embedding = get_embedding(question)
@@ -195,13 +247,18 @@ def handle_ask(chat_id, question):
         send_message(chat_id, "❌ Failed to search the brain.")
         return
 
-    # Augmented search: also query Calendar and Gmail if relevant
-    try:
-        from smart_search import augmented_search
-        search_result = augmented_search(question, results or [])
-        context = search_result["combined_context"]
-    except Exception as e:
-        post_log("warning", f"Smart search fallback: {e}")
+    if search_mode == "advanced":
+        # Augmented search: also query Calendar and Gmail if relevant
+        try:
+            from smart_search import augmented_search
+            search_result = augmented_search(question, results or [])
+            context = search_result["combined_context"]
+        except Exception as e:
+            post_log("warning", f"Smart search fallback: {e}")
+            context = "\n\n".join(
+                f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
+            ) if results else ""
+    else:
         context = "\n\n".join(
             f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
         ) if results else ""
@@ -210,23 +267,26 @@ def handle_ask(chat_id, question):
         send_message(chat_id, "🤷 No relevant memories or data found in your Open Brain.")
         return
 
+    sys_prompt = (
+        "You are the Open Brain assistant. Answer the user's question based on "
+        "ALL the information retrieved below" +
+        (" — this includes stored memories AND live data from Google Calendar and Gmail searches. " if search_mode == "advanced" else " from stored memories. ") +
+        "Use all available context to give the best possible answer. "
+        "If multiple sources help, synthesize them. Be concise."
+    )
+
     try:
         reasoning_client, reasoning_model = get_client("reasoning")
         resp = reasoning_client.chat.completions.create(
             model=reasoning_model,
             messages=[
-                {"role": "system", "content": (
-                    "You are the Open Brain assistant. Answer the user's question based on "
-                    "ALL the information retrieved below — this includes stored memories AND "
-                    "live data from Google Calendar and Gmail searches. "
-                    "Use all available context to give the best possible answer. "
-                    "If multiple sources help, synthesize them. Be concise."
-                )},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": f"Retrieved information:\n{context}\n\nQuestion: {question}"},
             ],
         )
         answer = resp.choices[0].message.content
-        post_log("success", f"Answered question (augmented search)")
+        mode_label = "advanced" if search_mode == "advanced" else "memory-only"
+        post_log("success", f"Answered question ({mode_label})")
         send_message(chat_id, f"🧠 {answer}")
     except Exception as e:
         post_log("error", f"LLM answer generation failed: {e}")
@@ -257,11 +317,11 @@ def process_message(message):
         if not question:
             send_message(chat_id, "Usage: /ask <your question>")
             return
-        handle_ask(chat_id, question)
+        prompt_search_mode(chat_id, question)
         return
 
     if text.lower().startswith("q:"):
-        handle_ask(chat_id, text[2:].strip())
+        prompt_search_mode(chat_id, text[2:].strip())
         return
 
     # Force-store prefix: user explicitly wants to save as memory
@@ -272,7 +332,7 @@ def process_message(message):
         # Auto-detect questions
         if is_question(text):
             post_log("info", f"Auto-detected question from chat_id={chat_id}: '{text[:60]}'")
-            handle_ask(chat_id, text)
+            prompt_search_mode(chat_id, text)
             return
 
     post_log("info", f"Storing memory from chat_id={chat_id}: '{text[:60]}...'")
@@ -342,6 +402,18 @@ def main():
             if updates.get("ok"):
                 for item in updates["result"]:
                     update_id = item["update_id"] + 1
+                    # Handle callback queries (inline button presses)
+                    cb = item.get("callback_query")
+                    if cb:
+                        cb_chat_id = str(cb.get("message", {}).get("chat", {}).get("id", ""))
+                        cb_data = cb.get("data", "")
+                        cb_id = cb.get("id", "")
+                        if cb_data.startswith("search_mode:"):
+                            mode = cb_data.split(":", 1)[1]
+                            handle_search_mode_callback(cb_chat_id, cb_id, mode)
+                        else:
+                            answer_callback_query(cb_id)
+                        continue
                     message = item.get("message") or item.get("edited_message")
                     if message:
                         process_message(message)

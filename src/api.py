@@ -204,6 +204,7 @@ async def ingest_document_endpoint(file: UploadFile = File(...)):
 class ChatMessage(BaseModel):
     message: str
     force_mode: str = ""  # "question", "memory", or "" for auto-detect
+    search_mode: str = "advanced"  # "memory_only" or "advanced"
 
 @app.post("/api/chat")
 def chat_endpoint(payload: ChatMessage):
@@ -234,12 +235,21 @@ def chat_endpoint(payload: ChatMessage):
             return {"type": "answer", "content": f"Failed to search the brain: {e}", "sources": []}
 
         # Augmented search: also query Calendar and Gmail if relevant
+        use_advanced = payload.search_mode != "memory_only"
+        plan = {}
         try:
-            from smart_search import augmented_search
-            search_result = augmented_search(text, results or [])
-            context = search_result["combined_context"]
-            sources = search_result["sources"]
-            plan = search_result.get("search_plan", {})
+            if use_advanced:
+                from smart_search import augmented_search
+                search_result = augmented_search(text, results or [])
+                context = search_result["combined_context"]
+                sources = search_result["sources"]
+                plan = search_result.get("search_plan", {})
+            else:
+                context = "\n\n".join(
+                    f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
+                ) if results else ""
+                sources = [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results] if results else []
+                plan = {}
             extra_info = []
             if plan.get("search_calendar"):
                 n_cal = len([s for s in sources if s["source_type"] == "google_calendar_live"])
@@ -359,6 +369,7 @@ def chat_stream_endpoint(payload: ChatMessage):
             def on_step(step_text: str):
                 step_q.put(("thinking", step_text))
 
+            use_advanced = payload.search_mode != "memory_only"
             result_holder: dict = {}
 
             def _do_search():
@@ -370,13 +381,23 @@ def chat_stream_endpoint(payload: ChatMessage):
                     step_q.put(("done", None))
                     return
 
-                try:
-                    from smart_search import augmented_search
-                    search_result = augmented_search(text, results or [], on_step=on_step)
-                    result_holder["search_result"] = search_result
-                    result_holder["results"] = results
-                except Exception as e:
-                    on_step(f"Smart search fallback: {e}")
+                if use_advanced:
+                    try:
+                        from smart_search import augmented_search
+                        search_result = augmented_search(text, results or [], on_step=on_step)
+                        result_holder["search_result"] = search_result
+                        result_holder["results"] = results
+                    except Exception as e:
+                        on_step(f"Smart search fallback: {e}")
+                        ctx = "\n\n".join(
+                            f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
+                        ) if results else ""
+                        srcs = [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results] if results else []
+                        result_holder["search_result"] = {"combined_context": ctx, "sources": srcs, "search_plan": {}}
+                        result_holder["results"] = results
+                else:
+                    on_step(f"Memory-only mode — searching stored memories")
+                    on_step(f"Found {len(results or [])} relevant memories")
                     ctx = "\n\n".join(
                         f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
                     ) if results else ""

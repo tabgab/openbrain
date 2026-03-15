@@ -437,6 +437,7 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [mode, setMode] = useState<'' | 'question' | 'memory'>('');
+  const [searchMode, setSearchMode] = useState<'advanced' | 'memory_only'>('advanced');
   const [liveThinking, setLiveThinking] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -459,7 +460,7 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
       const resp = await fetch(`${API}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, force_mode: mode }),
+        body: JSON.stringify({ message: text, force_mode: mode, search_mode: searchMode }),
       });
 
       if (!resp.ok || !resp.body) throw new Error('Stream failed');
@@ -667,25 +668,46 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
         </div>
 
         {/* Input bar */}
-        <div style={{ display: 'flex', gap: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid var(--glass-border)', marginTop: '0.5rem' }}>
-          <div style={{ fontSize: '0.75rem', color: modeColor, alignSelf: 'center', minWidth: '40px', textAlign: 'center', fontWeight: 600 }}>
-            {modeLabel}
+        <div style={{ paddingTop: '0.75rem', borderTop: '1px solid var(--glass-border)', marginTop: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ fontSize: '0.75rem', color: modeColor, alignSelf: 'center', minWidth: '40px', textAlign: 'center', fontWeight: 600 }}>
+              {modeLabel}
+            </div>
+            <input
+              ref={inputRef}
+              type="text"
+              className="input-field"
+              placeholder={mode === 'question' ? 'Ask a question...' : mode === 'memory' ? 'Type a memory to store...' : 'Ask a question or store a memory...'}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && send()}
+              disabled={sending}
+              style={{ flex: 1, margin: 0 }}
+              autoFocus
+            />
+            <button className="btn" onClick={send} disabled={sending || !input.trim()} style={{ padding: '0.5rem 1rem' }}>
+              {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            </button>
           </div>
-          <input
-            ref={inputRef}
-            type="text"
-            className="input-field"
-            placeholder={mode === 'question' ? 'Ask a question...' : mode === 'memory' ? 'Type a memory to store...' : 'Ask a question or store a memory...'}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && send()}
-            disabled={sending}
-            style={{ flex: 1, margin: 0 }}
-            autoFocus
-          />
-          <button className="btn" onClick={send} disabled={sending || !input.trim()} style={{ padding: '0.5rem 1rem' }}>
-            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.4rem', paddingLeft: '48px' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginRight: '0.2rem' }}>Search:</span>
+            {([['memory_only', '🧠 Memory Only'], ['advanced', '🔎 Advanced']] as ['memory_only' | 'advanced', string][]).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => setSearchMode(m)}
+                style={{
+                  padding: '0.15rem 0.5rem', fontSize: '0.7rem', borderRadius: '10px', cursor: 'pointer',
+                  border: `1px solid ${searchMode === m ? (m === 'advanced' ? '#a78bfa' : '#60a5fa') : 'rgba(255,255,255,0.1)'}`,
+                  background: searchMode === m ? (m === 'advanced' ? 'rgba(167,139,250,0.15)' : 'rgba(96,165,250,0.15)') : 'transparent',
+                  color: searchMode === m ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  transition: 'all 0.15s',
+                }}
+                title={m === 'memory_only' ? 'Search only stored memories' : 'Search memories + Google Calendar + Gmail'}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
