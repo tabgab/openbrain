@@ -225,7 +225,7 @@ def chat_endpoint(payload: ChatMessage):
     add_event("info", "chat", f"Chat ({mode}): '{text[:60]}'")
 
     if mode == "question":
-        # Search brain and answer
+        # Search brain and answer — with augmented Calendar/Gmail search
         try:
             embedding = get_embedding(text)
             results = query_memories(embedding=embedding, limit=5)
@@ -233,12 +233,31 @@ def chat_endpoint(payload: ChatMessage):
             add_event("error", "chat", f"Brain search failed: {e}")
             return {"type": "answer", "content": f"Failed to search the brain: {e}", "sources": []}
 
-        if not results:
-            return {"type": "answer", "content": "No relevant memories found in your Open Brain yet.", "sources": []}
+        # Augmented search: also query Calendar and Gmail if relevant
+        try:
+            from smart_search import augmented_search
+            search_result = augmented_search(text, results or [])
+            context = search_result["combined_context"]
+            sources = search_result["sources"]
+            plan = search_result.get("search_plan", {})
+            extra_info = []
+            if plan.get("search_calendar"):
+                n_cal = len([s for s in sources if s["source_type"] == "google_calendar_live"])
+                extra_info.append(f"calendar:{n_cal}")
+            if plan.get("search_gmail"):
+                n_mail = len([s for s in sources if s["source_type"] == "gmail_live"])
+                extra_info.append(f"gmail:{n_mail}")
+            if extra_info:
+                add_event("info", "chat", f"Smart search: {', '.join(extra_info)}")
+        except Exception as e:
+            add_event("warning", "chat", f"Smart search fallback: {e}")
+            context = "\n\n".join(
+                f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
+            ) if results else ""
+            sources = [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results] if results else []
 
-        context = "\n\n".join(
-            f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
-        )
+        if not context:
+            return {"type": "answer", "content": "No relevant memories or data found in your Open Brain.", "sources": []}
 
         try:
             reasoning_client, reasoning_model = get_client("reasoning")
@@ -246,19 +265,23 @@ def chat_endpoint(payload: ChatMessage):
                 model=reasoning_model,
                 messages=[
                     {"role": "system", "content": (
-                        "You are the Open Brain assistant. Answer the user's question based ONLY on "
-                        "the memories retrieved below. If the memories don't contain enough information, "
-                        "say so honestly. Be concise and helpful."
+                        "You are the Open Brain assistant. Answer the user's question based on "
+                        "ALL the information retrieved below — this includes stored memories AND "
+                        "live data from Google Calendar and Gmail searches. "
+                        "Use all available context to give the best possible answer. "
+                        "If multiple sources help, synthesize them. Be concise and helpful."
                     )},
-                    {"role": "user", "content": f"Memories:\n{context}\n\nQuestion: {text}"},
+                    {"role": "user", "content": f"Retrieved information:\n{context}\n\nQuestion: {text}"},
                 ],
             )
             answer = resp.choices[0].message.content
-            add_event("success", "chat", f"Answered question (used {len(results)} memories)")
+            n_mem = len([s for s in sources if s["source_type"] not in ("google_calendar_live", "gmail_live")])
+            n_ext = len(sources) - n_mem
+            add_event("success", "chat", f"Answered question (used {n_mem} memories + {n_ext} live sources)")
             return {
                 "type": "answer",
                 "content": answer,
-                "sources": [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results],
+                "sources": sources,
             }
         except Exception as e:
             add_event("error", "chat", f"LLM answer failed: {e}")

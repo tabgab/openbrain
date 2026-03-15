@@ -71,30 +71,38 @@ def search_brain(query_concept: str, limit: int = 5) -> str:
 @mcp.tool()
 def ask_brain(question: str) -> str:
     """
-    Ask a question and get an AI-generated answer based on the user's stored memories.
-    This performs semantic search, retrieves the most relevant context, and uses a
-    reasoning model to synthesize an answer. Use this for complex queries.
+    Ask a question and get an AI-generated answer based on your stored memories,
+    Google Calendar events, and Gmail messages. The system intelligently decides
+    which sources to search and expands queries with common sense.
     """
     embedding = get_embedding(question)
     results = query_memories(embedding=embedding, limit=5)
 
-    if not results:
-        return "No relevant memories found to answer this question."
+    # Use augmented search to also query Calendar/Gmail if relevant
+    try:
+        from smart_search import augmented_search
+        search_result = augmented_search(question, results or [])
+        context = search_result["combined_context"]
+    except Exception:
+        context = "\n\n".join(
+            f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
+        ) if results else ""
 
-    context = "\n\n".join(
-        f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
-    )
+    if not context:
+        return "No relevant memories or data found to answer this question."
 
     reasoning_client, reasoning_model = get_client("reasoning")
     resp = reasoning_client.chat.completions.create(
         model=reasoning_model,
         messages=[
             {"role": "system", "content": (
-                "You are the Open Brain assistant. Answer the user's question based ONLY on "
-                "the memories retrieved below. If the memories don't contain enough information, "
-                "say so honestly. Be concise and factual."
+                "You are the Open Brain assistant. Answer the user's question based on "
+                "ALL the information retrieved below — this includes stored memories AND "
+                "live data from Google Calendar and Gmail searches. "
+                "Use all available context to give the best possible answer. "
+                "If multiple sources help, synthesize them. Be concise and factual."
             )},
-            {"role": "user", "content": f"Memories:\n{context}\n\nQuestion: {question}"},
+            {"role": "user", "content": f"Retrieved information:\n{context}\n\nQuestion: {question}"},
         ],
     )
     return resp.choices[0].message.content

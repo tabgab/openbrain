@@ -184,7 +184,7 @@ def is_question(text: str) -> bool:
 
 
 def handle_ask(chat_id, question):
-    """Search the brain for relevant memories and answer the question using the LLM."""
+    """Search the brain for relevant memories (+ Calendar/Gmail) and answer using the LLM."""
     post_log("info", f"Question from chat_id={chat_id}: '{question[:60]}...'")
 
     try:
@@ -195,13 +195,20 @@ def handle_ask(chat_id, question):
         send_message(chat_id, "❌ Failed to search the brain.")
         return
 
-    if not results:
-        send_message(chat_id, "🤷 No relevant memories found in your Open Brain yet.")
-        return
+    # Augmented search: also query Calendar and Gmail if relevant
+    try:
+        from smart_search import augmented_search
+        search_result = augmented_search(question, results or [])
+        context = search_result["combined_context"]
+    except Exception as e:
+        post_log("warning", f"Smart search fallback: {e}")
+        context = "\n\n".join(
+            f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
+        ) if results else ""
 
-    context = "\n\n".join(
-        f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
-    )
+    if not context:
+        send_message(chat_id, "🤷 No relevant memories or data found in your Open Brain.")
+        return
 
     try:
         reasoning_client, reasoning_model = get_client("reasoning")
@@ -209,15 +216,17 @@ def handle_ask(chat_id, question):
             model=reasoning_model,
             messages=[
                 {"role": "system", "content": (
-                    "You are the Open Brain assistant. Answer the user's question based ONLY on "
-                    "the memories retrieved below. If the memories don't contain enough information, "
-                    "say so honestly. Be concise."
+                    "You are the Open Brain assistant. Answer the user's question based on "
+                    "ALL the information retrieved below — this includes stored memories AND "
+                    "live data from Google Calendar and Gmail searches. "
+                    "Use all available context to give the best possible answer. "
+                    "If multiple sources help, synthesize them. Be concise."
                 )},
-                {"role": "user", "content": f"Memories:\n{context}\n\nQuestion: {question}"},
+                {"role": "user", "content": f"Retrieved information:\n{context}\n\nQuestion: {question}"},
             ],
         )
         answer = resp.choices[0].message.content
-        post_log("success", f"Answered question (used {len(results)} memories)")
+        post_log("success", f"Answered question (augmented search)")
         send_message(chat_id, f"🧠 {answer}")
     except Exception as e:
         post_log("error", f"LLM answer generation failed: {e}")
