@@ -45,6 +45,7 @@ openbrain-db-data/
 # --- Google Integration ---
 google_credentials.json
 google_token.json
+google_accounts/
 google_drive_state.json
 google_gmail_state.json
 

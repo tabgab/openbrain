@@ -478,13 +478,13 @@ async def restore_endpoint(file: UploadFile = File(...), password: str = Form(..
         add_event("error", "restore", f"Restore failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- Google Drive & Gmail ---
+# --- Google Drive & Gmail (multi-account, search/preview/ingest) ---
 
 @app.get("/api/google/status")
 def google_status():
-    """Check if Google account is connected."""
-    from google_integration import get_connection_status
-    return get_connection_status()
+    """List all connected Google accounts and credentials file status."""
+    from google_integration import get_status
+    return get_status()
 
 @app.post("/api/google/connect")
 def google_connect():
@@ -507,11 +507,10 @@ def google_callback(code: str = None, error: str = None):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     add_event("success", "google", f"Google account connected: {result.get('email')}")
-    # Return a simple HTML page that closes itself / redirects to dashboard
     from fastapi.responses import HTMLResponse
     return HTMLResponse(f"""
         <html><body style="font-family:sans-serif;text-align:center;padding:3rem">
-        <h2>✅ Google Connected</h2>
+        <h2>Google Connected</h2>
         <p>Signed in as <strong>{result.get('email')}</strong></p>
         <p>You can close this tab and return to the Open Brain dashboard.</p>
         <script>setTimeout(()=>window.close(), 3000)</script>
@@ -519,35 +518,88 @@ def google_callback(code: str = None, error: str = None):
     """)
 
 @app.post("/api/google/disconnect")
-def google_disconnect():
-    """Disconnect Google account."""
+def google_disconnect(payload: dict):
+    """Disconnect a specific Google account."""
+    email = payload.get("email", "")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
     from google_integration import disconnect
-    result = disconnect()
-    add_event("info", "google", "Google account disconnected")
+    result = disconnect(email)
+    add_event("info", "google", f"Google account disconnected: {email}")
     return result
 
-@app.post("/api/google/sync/drive")
-def google_sync_drive():
-    """Sync new/modified files from Google Drive."""
-    from google_integration import sync_drive
-    add_event("info", "google", "Starting Google Drive sync...")
-    result = sync_drive()
+# Drive: search/preview
+@app.post("/api/google/drive/search")
+def google_drive_search(payload: dict):
+    """Search Google Drive files with filters. Returns preview list."""
+    email = payload.get("email", "")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
+    from google_integration import search_drive
+    result = search_drive(
+        email=email,
+        query=payload.get("query", ""),
+        folder_name=payload.get("folder_name", ""),
+        file_type=payload.get("file_type", ""),
+        max_results=payload.get("max_results", 25),
+    )
     if "error" in result:
-        add_event("error", "google", f"Drive sync failed: {result['error']}")
-    else:
-        add_event("success", "google", f"Drive sync: {len(result.get('ingested', []))} files ingested, {result.get('files_checked', 0)} checked")
+        raise HTTPException(status_code=400, detail=result["error"])
     return result
 
-@app.post("/api/google/sync/gmail")
-def google_sync_gmail():
-    """Sync recent emails from Gmail."""
-    from google_integration import sync_gmail
-    add_event("info", "google", "Starting Gmail sync...")
-    result = sync_gmail()
+# Drive: ingest selected files
+@app.post("/api/google/drive/ingest")
+def google_drive_ingest(payload: dict):
+    """Ingest selected Google Drive files by their IDs."""
+    email = payload.get("email", "")
+    file_ids = payload.get("file_ids", [])
+    if not email or not file_ids:
+        raise HTTPException(status_code=400, detail="Email and file_ids are required.")
+    from google_integration import ingest_drive_files
+    add_event("info", "google", f"Ingesting {len(file_ids)} files from Drive ({email})...")
+    result = ingest_drive_files(email, file_ids)
     if "error" in result:
-        add_event("error", "google", f"Gmail sync failed: {result['error']}")
+        add_event("error", "google", f"Drive ingest failed: {result['error']}")
     else:
-        add_event("success", "google", f"Gmail sync: {len(result.get('ingested', []))} emails ingested, {result.get('emails_checked', 0)} checked")
+        add_event("success", "google", f"Drive: {len(result.get('ingested', []))} files ingested from {email}")
+    return result
+
+# Gmail: search/preview
+@app.post("/api/google/gmail/search")
+def google_gmail_search(payload: dict):
+    """Search Gmail messages with filters. Returns preview list."""
+    email = payload.get("email", "")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
+    from google_integration import search_gmail
+    result = search_gmail(
+        email=email,
+        query=payload.get("query", ""),
+        from_filter=payload.get("from_filter", ""),
+        subject_filter=payload.get("subject_filter", ""),
+        label=payload.get("label", ""),
+        newer_than=payload.get("newer_than", "7d"),
+        max_results=payload.get("max_results", 25),
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+# Gmail: ingest selected messages
+@app.post("/api/google/gmail/ingest")
+def google_gmail_ingest(payload: dict):
+    """Ingest selected Gmail messages by their IDs."""
+    email = payload.get("email", "")
+    message_ids = payload.get("message_ids", [])
+    if not email or not message_ids:
+        raise HTTPException(status_code=400, detail="Email and message_ids are required.")
+    from google_integration import ingest_gmail_messages
+    add_event("info", "google", f"Ingesting {len(message_ids)} emails from Gmail ({email})...")
+    result = ingest_gmail_messages(email, message_ids)
+    if "error" in result:
+        add_event("error", "google", f"Gmail ingest failed: {result['error']}")
+    else:
+        add_event("success", "google", f"Gmail: {len(result.get('ingested', []))} emails ingested from {email}")
     return result
 
 # --- WhatsApp Import ---

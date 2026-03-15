@@ -963,106 +963,307 @@ function BackupRestoreSection() {
   );
 }
 
-// --- Google Drive & Gmail ---
+// --- Google Drive & Gmail (multi-account, search/filter/preview/ingest) ---
+interface GoogleAccount { email: string; connected: boolean; connected_at?: string; drive_last_sync?: string; gmail_last_sync?: string; }
+interface DriveFile { id: string; name: string; mimeType: string; modifiedTime: string; size: string; already_synced: boolean; }
+interface GmailMsg { id: string; from: string; subject: string; date: string; snippet: string; already_synced: boolean; }
+
 function GoogleIntegrationSection() {
-  const [status, setStatus] = useState<{ connected: boolean; email?: string; reason?: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState<'drive' | 'gmail' | null>(null);
-  const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [hasCreds, setHasCreds] = useState(false);
+  const [accounts, setAccounts] = useState<GoogleAccount[]>([]);
+  const [connecting, setConnecting] = useState(false);
+  const [activeAccount, setActiveAccount] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'drive' | 'gmail'>('drive');
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Drive state
+  const [driveQuery, setDriveQuery] = useState('');
+  const [driveFolder, setDriveFolder] = useState('');
+  const [driveType, setDriveType] = useState('');
+  const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [driveSelected, setDriveSelected] = useState<Set<string>>(new Set());
+  const [driveSearching, setDriveSearching] = useState(false);
+  const [driveIngesting, setDriveIngesting] = useState(false);
+
+  // Gmail state
+  const [gmailQuery, setGmailQuery] = useState('');
+  const [gmailFrom, setGmailFrom] = useState('');
+  const [gmailSubject, setGmailSubject] = useState('');
+  const [gmailLabel, setGmailLabel] = useState('');
+  const [gmailNewer, setGmailNewer] = useState('7d');
+  const [gmailMsgs, setGmailMsgs] = useState<GmailMsg[]>([]);
+  const [gmailSelected, setGmailSelected] = useState<Set<string>>(new Set());
+  const [gmailSearching, setGmailSearching] = useState(false);
+  const [gmailIngesting, setGmailIngesting] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/google/status`);
-      setStatus(res.data);
-    } catch { setStatus({ connected: false, reason: 'api_error' }); }
-  }, []);
+      setHasCreds(res.data.has_credentials_file);
+      setAccounts(res.data.accounts || []);
+      if (!activeAccount && res.data.accounts?.length > 0) setActiveAccount(res.data.accounts[0].email);
+    } catch {}
+  }, [activeAccount]);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
   const connect = async () => {
-    setLoading(true);
+    setConnecting(true); setMsg(null);
     try {
       const res = await axios.post(`${API}/google/connect`);
       if (res.data.auth_url) window.open(res.data.auth_url, '_blank');
-      // Poll for connection status after redirect
       const poll = setInterval(async () => {
         const s = await axios.get(`${API}/google/status`);
-        if (s.data.connected) { setStatus(s.data); clearInterval(poll); setLoading(false); }
+        const accts = s.data.accounts || [];
+        if (accts.length > accounts.length) {
+          setAccounts(accts);
+          const newest = accts[accts.length - 1];
+          setActiveAccount(newest.email);
+          clearInterval(poll); setConnecting(false);
+          setMsg({ ok: true, text: `Connected: ${newest.email}` });
+        }
       }, 3000);
-      setTimeout(() => { clearInterval(poll); setLoading(false); }, 120000);
+      setTimeout(() => { clearInterval(poll); setConnecting(false); }, 120000);
     } catch (err: any) {
-      setSyncResult({ ok: false, msg: err?.response?.data?.detail || 'Failed to start OAuth' });
-      setLoading(false);
+      setMsg({ ok: false, text: err?.response?.data?.detail || 'Failed to start OAuth' });
+      setConnecting(false);
     }
   };
 
-  const disconnect = async () => {
-    await axios.post(`${API}/google/disconnect`);
-    setStatus({ connected: false, reason: 'disconnected' });
-    setSyncResult(null);
+  const disconnectAccount = async (email: string) => {
+    await axios.post(`${API}/google/disconnect`, { email });
+    setAccounts(prev => prev.filter(a => a.email !== email));
+    if (activeAccount === email) setActiveAccount(accounts.find(a => a.email !== email)?.email || null);
+    setMsg({ ok: true, text: `Disconnected ${email}` });
   };
 
-  const sync = async (type: 'drive' | 'gmail') => {
-    setSyncing(type);
-    setSyncResult(null);
+  // Drive search
+  const searchDrive = async () => {
+    if (!activeAccount) return;
+    setDriveSearching(true); setMsg(null); setDriveFiles([]); setDriveSelected(new Set());
     try {
-      const res = await axios.post(`${API}/google/sync/${type}`);
-      if (res.data.error) {
-        setSyncResult({ ok: false, msg: res.data.error });
-      } else {
-        const ingested = res.data.ingested?.length || 0;
-        const checked = res.data.files_checked || res.data.emails_checked || 0;
-        setSyncResult({ ok: true, msg: `${type === 'drive' ? 'Drive' : 'Gmail'}: ${ingested} new items ingested (${checked} checked)` });
-      }
-    } catch (err: any) {
-      setSyncResult({ ok: false, msg: err?.response?.data?.detail || `${type} sync failed` });
-    } finally { setSyncing(null); }
+      const res = await axios.post(`${API}/google/drive/search`, {
+        email: activeAccount, query: driveQuery, folder_name: driveFolder, file_type: driveType, max_results: 30,
+      });
+      setDriveFiles(res.data.files || []);
+      if (res.data.files?.length === 0) setMsg({ ok: true, text: 'No files found matching your filters.' });
+    } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Drive search failed' }); }
+    finally { setDriveSearching(false); }
   };
+
+  const ingestDriveFiles = async () => {
+    if (!activeAccount || driveSelected.size === 0) return;
+    setDriveIngesting(true); setMsg(null);
+    try {
+      const res = await axios.post(`${API}/google/drive/ingest`, { email: activeAccount, file_ids: Array.from(driveSelected) });
+      const n = res.data.ingested?.length || 0;
+      const e = res.data.errors?.length || 0;
+      setMsg({ ok: e === 0, text: `Ingested ${n} files${e > 0 ? `, ${e} errors` : ''}` });
+      setDriveSelected(new Set());
+      searchDrive(); // refresh to show synced status
+    } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Ingest failed' }); }
+    finally { setDriveIngesting(false); }
+  };
+
+  // Gmail search
+  const searchGmail = async () => {
+    if (!activeAccount) return;
+    setGmailSearching(true); setMsg(null); setGmailMsgs([]); setGmailSelected(new Set());
+    try {
+      const res = await axios.post(`${API}/google/gmail/search`, {
+        email: activeAccount, query: gmailQuery, from_filter: gmailFrom,
+        subject_filter: gmailSubject, label: gmailLabel, newer_than: gmailNewer, max_results: 30,
+      });
+      setGmailMsgs(res.data.messages || []);
+      if (res.data.messages?.length === 0) setMsg({ ok: true, text: 'No emails found matching your filters.' });
+    } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Gmail search failed' }); }
+    finally { setGmailSearching(false); }
+  };
+
+  const ingestGmailMsgs = async () => {
+    if (!activeAccount || gmailSelected.size === 0) return;
+    setGmailIngesting(true); setMsg(null);
+    try {
+      const res = await axios.post(`${API}/google/gmail/ingest`, { email: activeAccount, message_ids: Array.from(gmailSelected) });
+      const n = res.data.ingested?.length || 0;
+      const e = res.data.errors?.length || 0;
+      setMsg({ ok: e === 0, text: `Ingested ${n} emails${e > 0 ? `, ${e} errors` : ''}` });
+      setGmailSelected(new Set());
+      searchGmail();
+    } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Ingest failed' }); }
+    finally { setGmailIngesting(false); }
+  };
+
+  const toggleDrive = (id: string) => setDriveSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggleGmail = (id: string) => setGmailSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const selectAllDrive = () => setDriveSelected(new Set(driveFiles.filter(f => !f.already_synced).map(f => f.id)));
+  const selectAllGmail = () => setGmailSelected(new Set(gmailMsgs.filter(m => !m.already_synced).map(m => m.id)));
+
+  const sty = { filter: { display: 'flex', gap: '0.4rem', flexWrap: 'wrap' as const, marginBottom: '0.5rem' },
+    inp: { fontSize: '0.82rem', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)', flex: 1, minWidth: '120px' } };
 
   return (
     <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
         <Cloud size={20} color="var(--accent)" />
         <h2 style={{ margin: 0, flex: 1 }}>Google Drive & Gmail</h2>
-        {status?.connected && (
-          <span style={{ fontSize: '0.82rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <CheckCircle2 size={14} /> {status.email}
-          </span>
-        )}
+        <button className="btn" onClick={connect} disabled={connecting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem' }}>
+          {connecting ? <Loader2 size={13} className="animate-spin" /> : <Link size={13} />}
+          {connecting ? 'Authorizing...' : 'Add Account'}
+        </button>
       </div>
 
-      {!status?.connected ? (
-        <div>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            Connect your Google account to automatically sync files from Drive and emails from Gmail into your Open Brain.
-            Requires a <code>google_credentials.json</code> file from Google Cloud Console (OAuth 2.0 Desktop credentials).
-          </p>
-          <button className="btn" onClick={connect} disabled={loading} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Link size={14} />}
-            {loading ? 'Waiting for authorization...' : 'Connect Google Account'}
-          </button>
-        </div>
-      ) : (
-        <div>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-            <button className="btn" onClick={() => sync('drive')} disabled={syncing !== null} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}>
-              {syncing === 'drive' ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
-              {syncing === 'drive' ? 'Syncing Drive...' : 'Sync Google Drive'}
-            </button>
-            <button className="btn" onClick={() => sync('gmail')} disabled={syncing !== null} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}>
-              {syncing === 'gmail' ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
-              {syncing === 'gmail' ? 'Syncing Gmail...' : 'Sync Gmail'}
-            </button>
-            <button className="btn btn-secondary" onClick={disconnect} style={{ padding: '0.45rem 1rem', fontSize: '0.85rem', marginLeft: 'auto' }}>
-              <Unlink size={14} /> Disconnect
-            </button>
-          </div>
+      {!hasCreds && (
+        <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', marginBottom: '1rem', fontSize: '0.85rem' }}>
+          <strong>Setup required:</strong>
+          <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.6 }}>
+            <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Cloud Console</a></li>
+            <li>Create a project &rarr; enable <strong>Google Drive API</strong> and <strong>Gmail API</strong></li>
+            <li>Go to <strong>Credentials</strong> &rarr; Create <strong>OAuth 2.0 Client ID</strong> (Web application)</li>
+            <li>Add redirect URI: <code>http://localhost:8000/api/google/callback</code></li>
+            <li>Download the JSON and save as <code>google_credentials.json</code> in the project root</li>
+            <li>Restart the backend, then click <strong>Add Account</strong> above</li>
+          </ol>
         </div>
       )}
 
-      {syncResult && (
-        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: syncResult.ok ? 'var(--success)' : 'var(--error)' }}>
-          {syncResult.ok ? '✅' : '❌'} {syncResult.msg}
+      {/* Account list */}
+      {accounts.length > 0 && (
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          {accounts.map(a => (
+            <div key={a.email} onClick={() => setActiveAccount(a.email)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.7rem', borderRadius: '8px', fontSize: '0.82rem', cursor: 'pointer',
+                background: activeAccount === a.email ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${activeAccount === a.email ? 'rgba(59,130,246,0.4)' : 'rgba(255,255,255,0.08)'}` }}>
+              <CheckCircle2 size={12} color={a.connected ? 'var(--success)' : 'var(--error)'} />
+              {a.email}
+              <button onClick={e => { e.stopPropagation(); disconnectAccount(a.email); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0 0.3rem', color: 'var(--text-secondary)' }}>
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Drive / Gmail tabs */}
+      {activeAccount && (
+        <>
+          <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '0.75rem' }}>
+            {(['drive', 'gmail'] as const).map(t => (
+              <button key={t} onClick={() => setActiveTab(t)}
+                style={{ padding: '0.3rem 0.8rem', borderRadius: '6px', fontSize: '0.82rem', border: 'none', cursor: 'pointer',
+                  background: activeTab === t ? 'rgba(59,130,246,0.2)' : 'transparent', color: activeTab === t ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: activeTab === t ? 600 : 400 }}>
+                {t === 'drive' ? <><Cloud size={13} /> Drive</> : <><Mail size={13} /> Gmail</>}
+              </button>
+            ))}
+          </div>
+
+          {/* DRIVE TAB */}
+          {activeTab === 'drive' && (
+            <div>
+              <div style={sty.filter}>
+                <input style={sty.inp} placeholder="Search file name..." value={driveQuery} onChange={e => setDriveQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchDrive()} />
+                <input style={{ ...sty.inp, maxWidth: '140px' }} placeholder="Folder name" value={driveFolder} onChange={e => setDriveFolder(e.target.value)} />
+                <select style={{ ...sty.inp, maxWidth: '130px' }} value={driveType} onChange={e => setDriveType(e.target.value)}>
+                  <option value="">All types</option>
+                  <option value="document">Docs</option>
+                  <option value="spreadsheet">Sheets</option>
+                  <option value="pdf">PDFs</option>
+                  <option value="image">Images</option>
+                </select>
+                <button className="btn" onClick={searchDrive} disabled={driveSearching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}>
+                  {driveSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Search
+                </button>
+              </div>
+              {driveFiles.length > 0 && (
+                <div style={{ maxHeight: '250px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    <button onClick={selectAllDrive} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all new</button>
+                    <span style={{ marginLeft: 'auto' }}>{driveSelected.size} selected</span>
+                  </div>
+                  {driveFiles.map(f => (
+                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: f.already_synced ? 0.5 : 1 }}>
+                      <input type="checkbox" checked={driveSelected.has(f.id)} onChange={() => toggleDrive(f.id)} disabled={f.already_synced} style={{ accentColor: 'var(--accent)' }} />
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{f.modifiedTime?.slice(0, 10)}</span>
+                      {f.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {driveFiles.length > 0 && driveSelected.size > 0 && (
+                <button className="btn" onClick={ingestDriveFiles} disabled={driveIngesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
+                  {driveIngesting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  Ingest {driveSelected.size} file{driveSelected.size !== 1 ? 's' : ''}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* GMAIL TAB */}
+          {activeTab === 'gmail' && (
+            <div>
+              <div style={sty.filter}>
+                <input style={sty.inp} placeholder="Search query..." value={gmailQuery} onChange={e => setGmailQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchGmail()} />
+                <input style={{ ...sty.inp, maxWidth: '150px' }} placeholder="From (sender)" value={gmailFrom} onChange={e => setGmailFrom(e.target.value)} />
+                <input style={{ ...sty.inp, maxWidth: '150px' }} placeholder="Subject contains" value={gmailSubject} onChange={e => setGmailSubject(e.target.value)} />
+              </div>
+              <div style={sty.filter}>
+                <select style={{ ...sty.inp, maxWidth: '120px' }} value={gmailLabel} onChange={e => setGmailLabel(e.target.value)}>
+                  <option value="">All labels</option>
+                  <option value="INBOX">Inbox</option>
+                  <option value="STARRED">Starred</option>
+                  <option value="IMPORTANT">Important</option>
+                  <option value="SENT">Sent</option>
+                </select>
+                <select style={{ ...sty.inp, maxWidth: '120px' }} value={gmailNewer} onChange={e => setGmailNewer(e.target.value)}>
+                  <option value="1d">Last 24h</option>
+                  <option value="3d">Last 3 days</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="90d">Last 90 days</option>
+                  <option value="1y">Last year</option>
+                </select>
+                <button className="btn" onClick={searchGmail} disabled={gmailSearching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}>
+                  {gmailSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Search
+                </button>
+              </div>
+              {gmailMsgs.length > 0 && (
+                <div style={{ maxHeight: '250px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    <button onClick={selectAllGmail} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all new</button>
+                    <span style={{ marginLeft: 'auto' }}>{gmailSelected.size} selected</span>
+                  </div>
+                  {gmailMsgs.map(m => (
+                    <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: m.already_synced ? 0.5 : 1 }}>
+                      <input type="checkbox" checked={gmailSelected.has(m.id)} onChange={() => toggleGmail(m.id)} disabled={m.already_synced} style={{ accentColor: 'var(--accent)' }} />
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <strong style={{ fontSize: '0.8rem' }}>{m.from?.split('<')[0]?.trim()}</strong>{' '}
+                        <span style={{ color: 'var(--text-secondary)' }}>{m.subject}</span>
+                      </span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{m.date?.slice(0, 16)}</span>
+                      {m.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {gmailMsgs.length > 0 && gmailSelected.size > 0 && (
+                <button className="btn" onClick={ingestGmailMsgs} disabled={gmailIngesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
+                  {gmailIngesting ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
+                  Ingest {gmailSelected.size} email{gmailSelected.size !== 1 ? 's' : ''}
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {msg && (
+        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: msg.ok ? 'var(--success)' : 'var(--error)' }}>
+          {msg.ok ? '✅' : '❌'} {msg.text}
         </div>
       )}
     </div>
