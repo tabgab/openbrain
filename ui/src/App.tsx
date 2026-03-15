@@ -1015,8 +1015,9 @@ function GoogleIntegrationSection() {
   const [gmailSelected, setGmailSelected] = useState<Set<string>>(new Set());
   const [gmailSearching, setGmailSearching] = useState(false);
   const [gmailIngesting, setGmailIngesting] = useState(false);
+  const [gmailIncludeImages, setGmailIncludeImages] = useState(false);
   const [expandedEmail, setExpandedEmail] = useState<string | null>(null);
-  const [emailPreview, setEmailPreview] = useState<{ id: string; from: string; to: string; subject: string; date: string; body: string } | null>(null);
+  const [emailPreview, setEmailPreview] = useState<{ id: string; from: string; to: string; subject: string; date: string; body: string; html_body?: string; image_count?: number } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   const fetchStatus = useCallback(async () => {
@@ -1107,7 +1108,7 @@ function GoogleIntegrationSection() {
     if (!activeAccount || gmailSelected.size === 0) return;
     setGmailIngesting(true); setMsg(null);
     try {
-      const res = await axios.post(`${API}/google/gmail/ingest`, { email: activeAccount, message_ids: Array.from(gmailSelected) });
+      const res = await axios.post(`${API}/google/gmail/ingest`, { email: activeAccount, message_ids: Array.from(gmailSelected), include_images: gmailIncludeImages });
       const n = res.data.ingested?.length || 0;
       const e = res.data.errors?.length || 0;
       setMsg({ ok: e === 0, text: `Ingested ${n} emails${e > 0 ? `, ${e} errors` : ''}` });
@@ -1352,17 +1353,27 @@ function GoogleIntegrationSection() {
                       {expandedEmail === m.id && (
                         <div style={{ padding: '0.5rem 0.6rem 0.6rem 2rem', fontSize: '0.8rem', background: 'rgba(59,130,246,0.04)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                           {loadingPreview ? (
-                            <span style={{ color: 'var(--text-secondary)' }}><Loader2 size={12} className="animate-spin" style={{ display: 'inline' }} /> Loading...</span>
+                            <span style={{ color: 'var(--text-secondary)' }}><Loader2 size={12} className="animate-spin" style={{ display: 'inline' }} /> Loading preview...</span>
                           ) : emailPreview ? (
                             <div>
                               <div style={{ marginBottom: '0.3rem', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
                                 <strong>From:</strong> {emailPreview.from}<br />
                                 {emailPreview.to && <><strong>To:</strong> {emailPreview.to}<br /></>}
                                 <strong>Date:</strong> {emailPreview.date}
+                                {(emailPreview.image_count ?? 0) > 0 && <><br /><strong>Images:</strong> {emailPreview.image_count} attachment{emailPreview.image_count !== 1 ? 's' : ''}</>}
                               </div>
-                              <div style={{ whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', lineHeight: 1.4, color: 'var(--text-primary)', padding: '0.3rem 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                {emailPreview.body}
-                              </div>
+                              {emailPreview.html_body ? (
+                                <iframe
+                                  sandbox="allow-same-origin"
+                                  title="Email preview"
+                                  srcDoc={emailPreview.html_body}
+                                  style={{ width: '100%', height: '300px', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', background: '#fff', marginTop: '0.3rem' }}
+                                />
+                              ) : (
+                                <div style={{ whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', lineHeight: 1.4, color: 'var(--text-primary)', padding: '0.3rem 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                  {emailPreview.body}
+                                </div>
+                              )}
                             </div>
                           ) : null}
                         </div>
@@ -1372,10 +1383,16 @@ function GoogleIntegrationSection() {
                 </div>
               )}
               {gmailMsgs.length > 0 && gmailSelected.size > 0 && (
-                <button className="btn" onClick={ingestGmailMsgs} disabled={gmailIngesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
-                  {gmailIngesting ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
-                  Ingest {gmailSelected.size} email{gmailSelected.size !== 1 ? 's' : ''}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.82rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    <input type="checkbox" checked={gmailIncludeImages} onChange={e => setGmailIncludeImages(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
+                    Include images (vision OCR)
+                  </label>
+                  <button className="btn" onClick={ingestGmailMsgs} disabled={gmailIngesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
+                    {gmailIngesting ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
+                    Ingest {gmailSelected.size} email{gmailSelected.size !== 1 ? 's' : ''}{gmailIncludeImages ? ' + images' : ''}
+                  </button>
+                </div>
               )}
             </div>
           )}

@@ -613,9 +613,10 @@ def google_gmail_ingest(payload: dict):
     message_ids = payload.get("message_ids", [])
     if not email or not message_ids:
         raise HTTPException(status_code=400, detail="Email and message_ids are required.")
+    include_images = payload.get("include_images", False)
     from google_integration import ingest_gmail_messages
-    add_event("info", "google", f"Ingesting {len(message_ids)} emails from Gmail ({email})...")
-    result = ingest_gmail_messages(email, message_ids)
+    add_event("info", "google", f"Ingesting {len(message_ids)} emails from Gmail ({email}){' with images' if include_images else ''}...")
+    result = ingest_gmail_messages(email, message_ids, include_images=include_images)
     if "error" in result:
         add_event("error", "google", f"Gmail ingest failed: {result['error']}")
     else:
