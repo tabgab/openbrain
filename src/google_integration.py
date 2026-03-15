@@ -534,6 +534,11 @@ def _extract_email_body(payload: dict) -> str:
         combined = "\n".join(html_parts)
         text = re.sub(r"<style[^>]*>.*?</style>", "", combined, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        # Preserve image references as [image] placeholders
+        text = re.sub(r'<img[^>]*alt="([^"]+)"[^>]*/?\s*>', r' [\1] ', text, flags=re.IGNORECASE)
+        text = re.sub(r"<img[^>]*/?\s*>", " [image] ", text, flags=re.IGNORECASE)
+        # Preserve links
+        text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'\2 (\1)', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"</(p|div|tr|li|h[1-6])>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)

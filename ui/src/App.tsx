@@ -26,7 +26,7 @@ interface Config {
   modelVision: string; modelEmbedding: string;
 }
 
-type Tab = 'dashboard' | 'chat' | 'settings' | 'logs';
+type Tab = 'dashboard' | 'chat' | 'ingest' | 'settings' | 'logs';
 
 const EMPTY_CONFIG: Config = {
   telegramToken: '', llmApiKey: '', dbPassword: '',
@@ -122,7 +122,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {(['dashboard', 'chat', 'settings', 'logs'] as Tab[]).map(t => (
+          {(['dashboard', 'chat', 'ingest', 'settings', 'logs'] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -131,9 +131,10 @@ export default function App() {
             >
               {t === 'dashboard' && <Activity size={16} />}
               {t === 'chat' && <MessageSquare size={16} />}
+              {t === 'ingest' && <Download size={16} />}
               {t === 'settings' && <SettingsIcon size={16} />}
               {t === 'logs' && <Terminal size={16} />}
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'ingest' ? 'Ingest' : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -146,6 +147,7 @@ export default function App() {
         <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
           {tab === 'dashboard' && <DashboardTab memories={memories} health={health} onOpenWizard={() => setShowWizard(true)} onRefresh={fetchAll} />}
           {tab === 'chat' && <ChatTab onMemoryAdded={fetchAll} />}
+          {tab === 'ingest' && <IngestTab onRefresh={fetchAll} />}
           {tab === 'settings' && <SettingsTab config={config} setConfig={setConfig} onSave={saveConfig} saving={saving} saveMsg={saveMsg} />}
           {tab === 'logs' && <LogsTab logs={logs} onRefresh={fetchAll} />}
         </motion.div>
@@ -331,7 +333,6 @@ function DashboardTab({ memories, health, onOpenWizard, onRefresh }: { memories:
             </button>
           )}
         </div>
-        <DocumentUpload onUploaded={onRefresh} />
       </div>
 
       <div className="glass-panel">
@@ -793,8 +794,6 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
       </div>
 
       <BackupRestoreSection />
-      <GoogleIntegrationSection />
-      <WhatsAppImportSection onImported={onSave} />
     </div>
   );
 }
@@ -959,6 +958,26 @@ function BackupRestoreSection() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// --- Ingest Tab ---
+function IngestTab({ onRefresh }: { onRefresh: () => void }) {
+  return (
+    <div>
+      <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+          <Upload size={20} color="var(--accent)" />
+          <h2 style={{ margin: 0 }}>Ingest Document</h2>
+        </div>
+        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+          Upload a file to ingest into your knowledge base. Supports PDF, images, Word, Excel, text, and more.
+        </p>
+        <DocumentUpload onUploaded={onRefresh} />
+      </div>
+      <GoogleIntegrationSection />
+      <WhatsAppImportSection onImported={onRefresh} />
     </div>
   );
 }
