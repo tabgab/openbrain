@@ -1599,7 +1599,7 @@ function GoogleIntegrationSection() {
                                     <Repeat size={9} /> {ev.recurrence_info || `×${ev.occurrence_count}`}
                                   </span>
                                 )}
-                                {ev.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
+                                {ev.already_synced && <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(34,197,94,0.12)', color: 'var(--success)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}><CheckCircle2 size={9} /> In Brain</span>}
                               </div>
                               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
                                 <Clock size={10} /> {ev.start?.slice(0, 16).replace('T', ' ')}
@@ -1647,9 +1647,9 @@ function GoogleIntegrationSection() {
                                       background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.12)',
                                       borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : ev.is_recurring ? '#a78bfa' : 'var(--accent)'}`,
                                       opacity: ev.already_synced ? 0.6 : 1 }}>
-                                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</div>
+                                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.already_synced && '✓ '}{ev.summary}</div>
                                     <div style={{ color: 'var(--text-secondary)', fontSize: '0.62rem' }}>
-                                      {formatTime(ev.start)}{ev.is_recurring && ' ↻'}
+                                      {formatTime(ev.start)}{ev.is_recurring && ' ↻'}{ev.already_synced && ' · in brain'}
                                     </div>
                                   </div>
                                 ))}
@@ -1689,7 +1689,7 @@ function GoogleIntegrationSection() {
                                       style={{ padding: '0.05rem 0.2rem', borderRadius: '2px', fontSize: '0.6rem', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                         background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.12)',
                                         borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : ev.is_recurring ? '#a78bfa' : 'var(--accent)'}` }}>
-                                      {ev.summary}
+                                      {ev.already_synced ? '✓ ' : ''}{ev.summary}
                                     </div>
                                   ))}
                                   {dayEvents.length > 3 && (
@@ -1706,7 +1706,12 @@ function GoogleIntegrationSection() {
 
                   {/* Expanded event preview panel */}
                   {calExpandedEvent && (
-                    <div style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.15)', marginBottom: '0.5rem', fontSize: '0.82rem' }}>
+                    <div style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', background: calExpandedEvent.already_synced ? 'rgba(34,197,94,0.05)' : 'rgba(59,130,246,0.04)', border: `1px solid ${calExpandedEvent.already_synced ? 'rgba(34,197,94,0.25)' : 'rgba(59,130,246,0.15)'}`, marginBottom: '0.5rem', fontSize: '0.82rem' }}>
+                      {calExpandedEvent.already_synced && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.4rem', padding: '0.3rem 0.5rem', borderRadius: '6px', background: 'rgba(34,197,94,0.1)', color: 'var(--success)', fontSize: '0.78rem', fontWeight: 600 }}>
+                          <CheckCircle2 size={14} /> Already ingested into Open Brain
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.3rem' }}>{calExpandedEvent.summary}</div>
@@ -1715,7 +1720,6 @@ function GoogleIntegrationSection() {
                             {calExpandedEvent.location && <div><MapPin size={12} /> {calExpandedEvent.location}</div>}
                             <div><CalendarDays size={12} /> {calExpandedEvent.calendar}</div>
                             {calExpandedEvent.is_recurring && <div><Repeat size={12} /> {calExpandedEvent.recurrence_info || `Repeating (${calExpandedEvent.occurrence_count} occurrences)`}</div>}
-                            {calExpandedEvent.already_synced && <div style={{ color: 'var(--success)' }}><CheckCircle2 size={12} /> Already ingested</div>}
                           </div>
                           {calExpandedEvent.description && (
                             <div style={{ marginTop: '0.4rem', padding: '0.4rem', borderRadius: '6px', background: 'rgba(255,255,255,0.03)', whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto', lineHeight: 1.4, fontSize: '0.78rem' }}>
