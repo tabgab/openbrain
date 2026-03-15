@@ -7,7 +7,7 @@ import {
   Terminal, ArrowRight, Save, RefreshCw, ListTree, Bot,
   Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles,
   Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw,
-  Cloud, Mail, Link, Phone, CalendarDays
+  Cloud, Mail, Link, Phone, CalendarDays, ChevronLeft, ChevronRight, List, Grid3X3, MapPin, Clock, Repeat
 } from 'lucide-react';
 
 const API = 'http://localhost:8000/api';
@@ -1030,6 +1030,9 @@ function GoogleIntegrationSection() {
   const [calFilter, setCalFilter] = useState('');
   const [calScanInfo, setCalScanInfo] = useState<{ is_first_scan: boolean; calendars_scanned: number } | null>(null);
   const [calShowPrompt, setCalShowPrompt] = useState(false);
+  const [calView, setCalView] = useState<'list' | 'week' | 'month'>('week');
+  const [calViewDate, setCalViewDate] = useState(new Date());
+  const [calExpandedEvent, setCalExpandedEvent] = useState<CalEvent | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -1175,6 +1178,39 @@ function GoogleIntegrationSection() {
   const filteredCalEvents = calFilter
     ? calEvents.filter(e => e.summary.toLowerCase().includes(calFilter.toLowerCase()) || e.calendar.toLowerCase().includes(calFilter.toLowerCase()) || e.location.toLowerCase().includes(calFilter.toLowerCase()))
     : calEvents;
+
+  // Calendar view helpers
+  const getWeekDays = (d: Date): Date[] => {
+    const start = new Date(d); start.setDate(start.getDate() - start.getDay() + 1); // Monday
+    return Array.from({ length: 7 }, (_, i) => { const day = new Date(start); day.setDate(start.getDate() + i); return day; });
+  };
+  const getMonthDays = (d: Date): Date[] => {
+    const first = new Date(d.getFullYear(), d.getMonth(), 1);
+    const startDay = (first.getDay() + 6) % 7; // Mon=0
+    const start = new Date(first); start.setDate(1 - startDay);
+    return Array.from({ length: 42 }, (_, i) => { const day = new Date(start); day.setDate(start.getDate() + i); return day; });
+  };
+  const fmtDateKey = (d: Date) => d.toISOString().slice(0, 10);
+  const eventsForDay = (dateKey: string) => filteredCalEvents.filter(ev => {
+    const evDate = ev.start?.slice(0, 10) || '';
+    return evDate === dateKey;
+  });
+  const navigateCal = (dir: number) => {
+    setCalViewDate(prev => {
+      const d = new Date(prev);
+      if (calView === 'week') d.setDate(d.getDate() + dir * 7);
+      else d.setMonth(d.getMonth() + dir);
+      return d;
+    });
+  };
+  const isToday = (d: Date) => fmtDateKey(d) === fmtDateKey(new Date());
+  const isSameMonth = (d: Date) => d.getMonth() === calViewDate.getMonth();
+  const formatTime = (iso: string) => {
+    if (!iso || !iso.includes('T')) return 'all day';
+    return iso.slice(11, 16);
+  };
+  const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   // Auto-prompt calendar scan on first load when accounts exist
   useEffect(() => {
@@ -1490,6 +1526,7 @@ function GoogleIntegrationSection() {
           {/* CALENDAR TAB */}
           {activeTab === 'calendar' && (
             <div>
+              {/* Top bar: scan + view toggle + navigation */}
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem', alignItems: 'center' }}>
                 <button className="btn" onClick={scanCalendar} disabled={calScanning} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}>
                   {calScanning ? <Loader2 size={13} className="animate-spin" /> : <CalendarDays size={13} />}
@@ -1497,59 +1534,220 @@ function GoogleIntegrationSection() {
                 </button>
                 {calScanInfo && (
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    {calScanInfo.calendars_scanned} calendar{calScanInfo.calendars_scanned !== 1 ? 's' : ''} scanned
-                    {calScanInfo.is_first_scan ? ' (first scan — last 12 months)' : ' (current month + 30 days ahead)'}
+                    {calScanInfo.calendars_scanned} cal{calScanInfo.calendars_scanned !== 1 ? 's' : ''}
+                    {calScanInfo.is_first_scan ? ' · first scan (12 mo)' : ' · current month'}
                   </span>
                 )}
-              </div>
-              {calEvents.length > 0 && (
-                <>
-                  <div style={sty.filter}>
-                    <input style={sty.inp} placeholder="Filter events by name, calendar, or location..." value={calFilter} onChange={e => setCalFilter(e.target.value)} />
-                  </div>
-                  <div style={{ maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                      <button onClick={selectAllNewCal} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all new</button>
-                      <span style={{ marginLeft: 'auto' }}>{calSelected.size} selected · {filteredCalEvents.length} shown</span>
-                    </div>
-                    {filteredCalEvents.map(ev => (
-                      <label key={ev.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.4rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
-                        borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: ev.already_synced ? 0.5 : 1 }}>
-                        <input type="checkbox" checked={calSelected.has(ev.id)} onChange={() => toggleCal(ev.id)} disabled={ev.already_synced}
-                          style={{ accentColor: 'var(--accent)', marginTop: '0.15rem' }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
-                            {ev.is_recurring && (
-                              <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', whiteSpace: 'nowrap' }}>
-                                {ev.recurrence_info || `Recurring ×${ev.occurrence_count}`}
-                              </span>
-                            )}
-                            {ev.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
-                            {ev.start?.slice(0, 16).replace('T', ' ')}
-                            {ev.location && <> · {ev.location}</>}
-                            {ev.calendar && <> · <em>{ev.calendar}</em></>}
-                          </div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <button className="btn" onClick={ingestCalEvents} disabled={calIngesting || calSelected.size === 0} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem', opacity: calSelected.size === 0 ? 0.5 : 1 }}>
-                      {calIngesting ? <Loader2 size={13} className="animate-spin" /> : <CalendarDays size={13} />}
-                      {calSelected.size > 0
-                        ? `Ingest ${calSelected.size} event${calSelected.size !== 1 ? 's' : ''}`
-                        : 'Select events to ingest'}
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
+                  {(['list', 'week', 'month'] as const).map(v => (
+                    <button key={v} onClick={() => setCalView(v)}
+                      style={{ padding: '0.2rem 0.5rem', borderRadius: '5px', fontSize: '0.75rem', border: 'none', cursor: 'pointer',
+                        background: calView === v ? 'rgba(59,130,246,0.2)' : 'transparent', color: calView === v ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                      {v === 'list' && <List size={12} />}
+                      {v === 'week' && <CalendarDays size={12} />}
+                      {v === 'month' && <Grid3X3 size={12} />}
+                      {' '}{v.charAt(0).toUpperCase() + v.slice(1)}
                     </button>
-                  </div>
-                </>
+                  ))}
+                </div>
+              </div>
+
+              {/* Navigation bar for week/month views */}
+              {calView !== 'list' && calEvents.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <button onClick={() => navigateCal(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.2rem' }}><ChevronLeft size={16} /></button>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '160px', textAlign: 'center' }}>
+                    {calView === 'week'
+                      ? (() => { const days = getWeekDays(calViewDate); return `${days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`; })()
+                      : `${MONTH_NAMES[calViewDate.getMonth()]} ${calViewDate.getFullYear()}`}
+                  </span>
+                  <button onClick={() => navigateCal(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.2rem' }}><ChevronRight size={16} /></button>
+                  <button onClick={() => setCalViewDate(new Date())} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '0.75rem', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>Today</button>
+                  <input style={{ ...sty.inp, maxWidth: '200px', marginLeft: 'auto' }} placeholder="Filter..." value={calFilter} onChange={e => setCalFilter(e.target.value)} />
+                </div>
               )}
+
               {calScanning && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                   <Loader2 size={16} className="animate-spin" color="var(--accent)" /> Scanning calendars...
                 </div>
+              )}
+
+              {calEvents.length > 0 && (
+                <>
+                  {/* LIST VIEW */}
+                  {calView === 'list' && (
+                    <>
+                      <div style={sty.filter}>
+                        <input style={sty.inp} placeholder="Filter events by name, calendar, or location..." value={calFilter} onChange={e => setCalFilter(e.target.value)} />
+                      </div>
+                      <div style={{ maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                          <button onClick={selectAllNewCal} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all new</button>
+                          <span style={{ marginLeft: 'auto' }}>{calSelected.size} selected · {filteredCalEvents.length} shown</span>
+                        </div>
+                        {filteredCalEvents.map(ev => (
+                          <div key={ev.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.4rem 0.6rem', fontSize: '0.82rem',
+                            borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: ev.already_synced ? 0.5 : 1 }}>
+                            <input type="checkbox" checked={calSelected.has(ev.id)} onChange={() => toggleCal(ev.id)} disabled={ev.already_synced}
+                              style={{ accentColor: 'var(--accent)', marginTop: '0.15rem', cursor: 'pointer' }} />
+                            <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setCalExpandedEvent(calExpandedEvent?.id === ev.id ? null : ev)}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
+                                {ev.is_recurring && (
+                                  <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', whiteSpace: 'nowrap' }}>
+                                    <Repeat size={9} /> {ev.recurrence_info || `×${ev.occurrence_count}`}
+                                  </span>
+                                )}
+                                {ev.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                                <Clock size={10} /> {ev.start?.slice(0, 16).replace('T', ' ')}
+                                {ev.location && <> · <MapPin size={10} /> {ev.location}</>}
+                                {ev.calendar && <> · <em>{ev.calendar}</em></>}
+                              </div>
+                              {calExpandedEvent?.id === ev.id && (
+                                <div style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', fontSize: '0.8rem' }}>
+                                  <div style={{ marginBottom: '0.3rem' }}><strong>Time:</strong> {formatTime(ev.start)} — {formatTime(ev.end)}</div>
+                                  {ev.location && <div style={{ marginBottom: '0.3rem' }}><MapPin size={11} /> {ev.location}</div>}
+                                  {ev.calendar && <div style={{ marginBottom: '0.3rem' }}><CalendarDays size={11} /> {ev.calendar}</div>}
+                                  {ev.is_recurring && <div style={{ marginBottom: '0.3rem' }}><Repeat size={11} /> {ev.recurrence_info || `Repeating (${ev.occurrence_count} occurrences)`}</div>}
+                                  {ev.description && <div style={{ marginTop: '0.3rem', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto', lineHeight: 1.4 }}>{ev.description}</div>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {/* WEEK VIEW */}
+                  {calView === 'week' && (() => {
+                    const days = getWeekDays(calViewDate);
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', overflow: 'hidden', marginBottom: '0.5rem' }}>
+                        {days.map((day, i) => {
+                          const key = fmtDateKey(day);
+                          const dayEvents = eventsForDay(key);
+                          const today = isToday(day);
+                          return (
+                            <div key={key} style={{ background: 'var(--card-bg, rgba(0,0,0,0.3))', minHeight: '140px', padding: '0.3rem', display: 'flex', flexDirection: 'column' }}>
+                              <div style={{ fontSize: '0.72rem', fontWeight: 600, textAlign: 'center', marginBottom: '0.3rem', color: today ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                                <div>{DAY_NAMES[i]}</div>
+                                <div style={{ fontSize: '1rem', width: '1.6rem', height: '1.6rem', lineHeight: '1.6rem', borderRadius: '50%', margin: '0.1rem auto',
+                                  background: today ? 'var(--accent)' : 'transparent', color: today ? '#fff' : 'var(--text-primary)' }}>
+                                  {day.getDate()}
+                                </div>
+                              </div>
+                              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                {dayEvents.map(ev => (
+                                  <div key={ev.id} onClick={() => setCalExpandedEvent(calExpandedEvent?.id === ev.id ? null : ev)}
+                                    style={{ padding: '0.15rem 0.25rem', borderRadius: '3px', fontSize: '0.68rem', cursor: 'pointer', lineHeight: 1.3,
+                                      background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.12)',
+                                      borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : ev.is_recurring ? '#a78bfa' : 'var(--accent)'}`,
+                                      opacity: ev.already_synced ? 0.6 : 1 }}>
+                                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.62rem' }}>
+                                      {formatTime(ev.start)}{ev.is_recurring && ' ↻'}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* MONTH VIEW */}
+                  {calView === 'month' && (() => {
+                    const days = getMonthDays(calViewDate);
+                    return (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0', marginBottom: '1px' }}>
+                          {DAY_NAMES.map(d => (
+                            <div key={d} style={{ textAlign: 'center', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-secondary)', padding: '0.2rem 0' }}>{d}</div>
+                          ))}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', overflow: 'hidden', marginBottom: '0.5rem' }}>
+                          {days.map(day => {
+                            const key = fmtDateKey(day);
+                            const dayEvents = eventsForDay(key);
+                            const today = isToday(day);
+                            const inMonth = isSameMonth(day);
+                            return (
+                              <div key={key} style={{ background: 'var(--card-bg, rgba(0,0,0,0.3))', minHeight: '70px', padding: '0.2rem', opacity: inMonth ? 1 : 0.35 }}>
+                                <div style={{ fontSize: '0.68rem', fontWeight: today ? 700 : 400, textAlign: 'right', padding: '0 0.15rem',
+                                  color: today ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                                  {day.getDate()}
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                                  {dayEvents.slice(0, 3).map(ev => (
+                                    <div key={ev.id} onClick={() => setCalExpandedEvent(calExpandedEvent?.id === ev.id ? null : ev)}
+                                      style={{ padding: '0.05rem 0.2rem', borderRadius: '2px', fontSize: '0.6rem', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                        background: ev.already_synced ? 'rgba(34,197,94,0.1)' : calSelected.has(ev.id) ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.12)',
+                                        borderLeft: `2px solid ${ev.already_synced ? 'var(--success)' : ev.is_recurring ? '#a78bfa' : 'var(--accent)'}` }}>
+                                      {ev.summary}
+                                    </div>
+                                  ))}
+                                  {dayEvents.length > 3 && (
+                                    <div style={{ fontSize: '0.58rem', color: 'var(--text-secondary)', textAlign: 'center' }}>+{dayEvents.length - 3} more</div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()}
+
+                  {/* Expanded event preview panel */}
+                  {calExpandedEvent && (
+                    <div style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.15)', marginBottom: '0.5rem', fontSize: '0.82rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.3rem' }}>{calExpandedEvent.summary}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                            <div><Clock size={12} /> {calExpandedEvent.start?.slice(0, 16).replace('T', ' ')} — {formatTime(calExpandedEvent.end)}</div>
+                            {calExpandedEvent.location && <div><MapPin size={12} /> {calExpandedEvent.location}</div>}
+                            <div><CalendarDays size={12} /> {calExpandedEvent.calendar}</div>
+                            {calExpandedEvent.is_recurring && <div><Repeat size={12} /> {calExpandedEvent.recurrence_info || `Repeating (${calExpandedEvent.occurrence_count} occurrences)`}</div>}
+                            {calExpandedEvent.already_synced && <div style={{ color: 'var(--success)' }}><CheckCircle2 size={12} /> Already ingested</div>}
+                          </div>
+                          {calExpandedEvent.description && (
+                            <div style={{ marginTop: '0.4rem', padding: '0.4rem', borderRadius: '6px', background: 'rgba(255,255,255,0.03)', whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto', lineHeight: 1.4, fontSize: '0.78rem' }}>
+                              {calExpandedEvent.description}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', alignItems: 'flex-end' }}>
+                          <button onClick={() => setCalExpandedEvent(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}><X size={14} /></button>
+                          {!calExpandedEvent.already_synced && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+                              <input type="checkbox" checked={calSelected.has(calExpandedEvent.id)} onChange={() => toggleCal(calExpandedEvent.id)} style={{ accentColor: 'var(--accent)' }} />
+                              Select
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ingest bar */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <button onClick={selectAllNewCal} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0 }}>Select all new</button>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{calSelected.size} selected</span>
+                    <button className="btn" onClick={ingestCalEvents} disabled={calIngesting || calSelected.size === 0} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem', opacity: calSelected.size === 0 ? 0.5 : 1 }}>
+                      {calIngesting ? <Loader2 size={13} className="animate-spin" /> : <CalendarDays size={13} />}
+                      {calSelected.size > 0
+                        ? ` Ingest ${calSelected.size} event${calSelected.size !== 1 ? 's' : ''}`
+                        : ' Select events to ingest'}
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           )}
