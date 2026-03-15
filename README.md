@@ -20,7 +20,10 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Gmail Integration** — Search, preview, and ingest emails with optional image OCR; filter by label (including custom labels)
 - **Google Calendar** — Scan calendars with week/month/list views, per-calendar color-coded toggles, recurring event deduplication, and selective ingestion
 - **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
-- **Dashboard Chat** — Chat with your brain directly from the web dashboard, same auto-detect logic as Telegram
+- **Smart Search** — Questions automatically search stored memories, Google Calendar, and Gmail with LLM-powered common-sense query expansion (e.g., "dentist" also searches "Nánási Dent", "Dentideal")
+- **Search Mode Toggle** — Choose between "Memory Only" (fast, stored data) and "Advanced Search" (memories + Calendar + Gmail) in both the dashboard and Telegram
+- **Live Thinking Process** — Real-time streaming of search steps as they happen (SSE), with collapsible thinking panel on answers
+- **Dashboard Chat** — Chat with your brain directly from the web dashboard with streaming answers, same auto-detect logic as Telegram
 - **Web Dashboard** — Beautiful React UI for browsing memories, uploading documents, chatting, configuring models, and viewing logs
 - **Encrypted Backup & Restore** — One-click AES-256-GCM encrypted backup of your entire brain (database, vault, config) with password-protected restore
 - **Setup Wizard** — Guided first-run configuration for API keys, database, and Telegram bot
@@ -153,6 +156,10 @@ Send messages to your bot on Telegram:
 
 The bot auto-detects questions using heuristics + LLM classification — no prefix needed in most cases.
 
+When a question is detected, the bot presents **inline keyboard buttons** to choose:
+- **🧠 Memory Only** — Fast search of stored memories only
+- **🔎 Advanced Search** — Searches memories + Google Calendar + Gmail with smart query expansion
+
 ---
 
 ## ☁️ Google Drive, Gmail & Calendar
@@ -216,7 +223,7 @@ Other AI systems can connect to Open Brain as an MCP server with **17 tools**:
 ### Memory Tools
 - `save_memory` — Store a fact/note (auto-categorized, embedded, PII-scrubbed)
 - `search_brain` — Semantic similarity search
-- `ask_brain` — Q&A with reasoning model over stored memories
+- `ask_brain` — Q&A with smart search (memories + Calendar + Gmail, with query expansion)
 - `list_memories` — Browse recent memories
 - `edit_memory` — Update content (auto re-embeds)
 - `remove_memory` — Delete a memory
@@ -270,7 +277,7 @@ The SSE server runs on `http://localhost:3100/sse` when started with `./start-op
 Access at **http://localhost:5173** after starting services.
 
 - **Dashboard** — Browse memories, edit/delete, upload documents
-- **Chat** — Conversational interface to ask questions or store memories (same as Telegram bot)
+- **Chat** — Conversational interface with streaming answers, live thinking process, and search mode toggle (Memory Only / Advanced Search)
 - **Settings** — Configure model roles, API keys, database, Telegram token, backup & restore, Google Drive/Gmail/Calendar, WhatsApp import
 - **Logs** — Real-time system event log from all services
 
@@ -306,9 +313,10 @@ openbrain/
 │   ├── backup.py           # Encrypted backup & restore (AES-256-GCM)
 │   ├── google_integration.py # Google Drive, Gmail & Calendar OAuth + sync
 │   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
+│   ├── smart_search.py     # Augmented search (Calendar + Gmail + query expansion)
 │   ├── scrubber.py         # PII detection and redaction
 │   ├── server.py           # MCP server (stdio + SSE)
-│   └── telegram_bot.py     # Telegram bot with auto question detection
+│   └── telegram_bot.py     # Telegram bot with auto question detection + search mode
 ├── ui/
 │   └── src/App.tsx         # React dashboard (settings, memories, logs)
 ├── init-scripts/
