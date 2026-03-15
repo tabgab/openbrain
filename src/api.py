@@ -584,6 +584,18 @@ def google_drive_ingest(payload: dict):
         add_event("success", "google", f"Drive: {len(result.get('ingested', []))} files ingested from {email}")
     return result
 
+# Gmail: list labels (system + custom)
+@app.get("/api/google/gmail/labels")
+def google_gmail_labels(email: str):
+    """List all Gmail labels (system + custom) for the given account."""
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
+    from google_integration import list_gmail_labels
+    result = list_gmail_labels(email)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
 # Gmail: search/preview
 @app.post("/api/google/gmail/search")
 def google_gmail_search(payload: dict):

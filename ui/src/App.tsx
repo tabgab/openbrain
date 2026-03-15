@@ -1010,6 +1010,7 @@ function GoogleIntegrationSection() {
   const [gmailFrom, setGmailFrom] = useState('');
   const [gmailSubject, setGmailSubject] = useState('');
   const [gmailLabel, setGmailLabel] = useState('');
+  const [gmailLabels, setGmailLabels] = useState<{ id: string; name: string; type: string }[]>([]);
   const [gmailNewer, setGmailNewer] = useState('7d');
   const [gmailMsgs, setGmailMsgs] = useState<GmailMsg[]>([]);
   const [gmailSelected, setGmailSelected] = useState<Set<string>>(new Set());
@@ -1030,6 +1031,17 @@ function GoogleIntegrationSection() {
   }, [activeAccount]);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  // Fetch Gmail labels when account or tab changes
+  useEffect(() => {
+    if (!activeAccount || activeTab !== 'gmail') return;
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/google/gmail/labels`, { params: { email: activeAccount } });
+        setGmailLabels(res.data.labels || []);
+      } catch { setGmailLabels([]); }
+    })();
+  }, [activeAccount, activeTab]);
 
   const connect = async () => {
     setConnecting(true); setMsg(null);
@@ -1304,12 +1316,18 @@ function GoogleIntegrationSection() {
                 <input style={{ ...sty.inp, maxWidth: '150px' }} placeholder="Subject contains" value={gmailSubject} onChange={e => setGmailSubject(e.target.value)} />
               </div>
               <div style={sty.filter}>
-                <select style={{ ...sty.inp, maxWidth: '120px' }} value={gmailLabel} onChange={e => setGmailLabel(e.target.value)}>
+                <select style={{ ...sty.inp, maxWidth: '160px' }} value={gmailLabel} onChange={e => setGmailLabel(e.target.value)}>
                   <option value="">All labels</option>
-                  <option value="INBOX">Inbox</option>
-                  <option value="STARRED">Starred</option>
-                  <option value="IMPORTANT">Important</option>
-                  <option value="SENT">Sent</option>
+                  {gmailLabels.filter(l => l.type === 'system').map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                  {gmailLabels.some(l => l.type === 'user') && (
+                    <optgroup label="Custom Labels">
+                      {gmailLabels.filter(l => l.type === 'user').map(l => (
+                        <option key={l.id} value={l.id}>{l.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 <select style={{ ...sty.inp, maxWidth: '120px' }} value={gmailNewer} onChange={e => setGmailNewer(e.target.value)}>
                   <option value="1d">Last 24h</option>
@@ -1382,15 +1400,17 @@ function GoogleIntegrationSection() {
                   ))}
                 </div>
               )}
-              {gmailMsgs.length > 0 && gmailSelected.size > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap' }}>
+              {gmailMsgs.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.82rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
                     <input type="checkbox" checked={gmailIncludeImages} onChange={e => setGmailIncludeImages(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
                     Include images (vision OCR)
                   </label>
-                  <button className="btn" onClick={ingestGmailMsgs} disabled={gmailIngesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
+                  <button className="btn" onClick={ingestGmailMsgs} disabled={gmailIngesting || gmailSelected.size === 0} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem', opacity: gmailSelected.size === 0 ? 0.5 : 1 }}>
                     {gmailIngesting ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
-                    Ingest {gmailSelected.size} email{gmailSelected.size !== 1 ? 's' : ''}{gmailIncludeImages ? ' + images' : ''}
+                    {gmailSelected.size > 0
+                      ? `Ingest ${gmailSelected.size} email${gmailSelected.size !== 1 ? 's' : ''}${gmailIncludeImages ? ' + images' : ''}`
+                      : 'Select emails to ingest'}
                   </button>
                 </div>
               )}

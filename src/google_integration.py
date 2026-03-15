@@ -335,6 +335,29 @@ def ingest_drive_files(email: str, file_ids: list[str]) -> dict:
 # Gmail — Search / Preview / Ingest
 # ---------------------------------------------------------------------------
 
+def list_gmail_labels(email: str) -> dict:
+    """Return all Gmail labels (system + custom) for the given account."""
+    creds = get_credentials_for(email)
+    if not creds:
+        return {"error": f"Account {email} not connected."}
+
+    service = build("gmail", "v1", credentials=creds)
+    try:
+        results = service.users().labels().list(userId="me").execute()
+        labels = []
+        for lbl in results.get("labels", []):
+            labels.append({
+                "id": lbl["id"],
+                "name": lbl["name"],
+                "type": lbl.get("type", "user"),  # "system" or "user"
+            })
+        # Sort: system labels first, then user labels alphabetically
+        labels.sort(key=lambda l: (0 if l["type"] == "system" else 1, l["name"].lower()))
+        return {"labels": labels}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def search_gmail(email: str, query: str = "", from_filter: str = "",
                  subject_filter: str = "", label: str = "",
                  newer_than: str = "7d", max_results: int = 25) -> dict:
@@ -345,7 +368,7 @@ def search_gmail(email: str, query: str = "", from_filter: str = "",
       query          — raw Gmail search query (full Gmail syntax)
       from_filter    — filter by sender email/name
       subject_filter — filter by subject text
-      label          — Gmail label (e.g. 'INBOX', 'IMPORTANT', 'STARRED')
+      label          — Gmail label ID (system like 'INBOX' or custom like 'Label_123')
       newer_than     — e.g. '1d', '7d', '30d', '1y'
       max_results    — how many to return (max 50)
     """
@@ -369,7 +392,7 @@ def search_gmail(email: str, query: str = "", from_filter: str = "",
 
     label_ids = []
     if label:
-        label_ids = [label.upper()]
+        label_ids = [label]  # Use label ID directly (works for both system and custom)
 
     max_results = min(max_results, 50)
 
