@@ -496,14 +496,14 @@ def google_connect():
     return result
 
 @app.get("/api/google/callback")
-def google_callback(code: str = None, error: str = None):
+def google_callback(code: str = None, error: str = None, state: str = None):
     """OAuth callback — exchanges auth code for tokens."""
     if error:
         return {"error": error}
     if not code:
         raise HTTPException(status_code=400, detail="No authorization code received.")
     from google_integration import complete_oauth_flow
-    result = complete_oauth_flow(code)
+    result = complete_oauth_flow(code, state=state or "")
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     add_event("success", "google", f"Google account connected: {result.get('email')}")

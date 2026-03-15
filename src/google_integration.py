@@ -20,7 +20,7 @@ from pathlib import Path
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
@@ -32,6 +32,9 @@ SCOPES = [
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CREDENTIALS_FILE = _PROJECT_ROOT / "google_credentials.json"
 _ACCOUNTS_DIR = _PROJECT_ROOT / "google_accounts"
+
+# Temporary in-memory store for PKCE code_verifiers keyed by OAuth state
+_pending_oauth: dict[str, str] = {}  # state -> code_verifier
 
 # ---------------------------------------------------------------------------
 # Multi-account storage  (google_accounts/<email>.json)
@@ -90,24 +93,31 @@ def start_oauth_flow() -> dict:
     if not _CREDENTIALS_FILE.exists():
         return {"error": "google_credentials.json not found. Download OAuth credentials from Google Cloud Console."}
 
-    flow = InstalledAppFlow.from_client_secrets_file(str(_CREDENTIALS_FILE), SCOPES)
-    flow.redirect_uri = "http://localhost:8000/api/google/callback"
+    flow = Flow.from_client_secrets_file(str(_CREDENTIALS_FILE), scopes=SCOPES,
+                                         redirect_uri="http://localhost:8000/api/google/callback")
 
-    auth_url, _ = flow.authorization_url(
+    auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
+    # Persist the code_verifier so the callback can use it
+    _pending_oauth[state] = flow.code_verifier or ""
     return {"auth_url": auth_url}
 
 
-def complete_oauth_flow(auth_code: str) -> dict:
+def complete_oauth_flow(auth_code: str, state: str = "") -> dict:
     """Exchange the authorization code for tokens and save under the account's email."""
     if not _CREDENTIALS_FILE.exists():
         return {"error": "google_credentials.json not found."}
 
-    flow = InstalledAppFlow.from_client_secrets_file(str(_CREDENTIALS_FILE), SCOPES)
-    flow.redirect_uri = "http://localhost:8000/api/google/callback"
+    flow = Flow.from_client_secrets_file(str(_CREDENTIALS_FILE), scopes=SCOPES,
+                                         redirect_uri="http://localhost:8000/api/google/callback")
+
+    # Restore PKCE code_verifier from the original auth request
+    code_verifier = _pending_oauth.pop(state, None) if state else None
+    if code_verifier:
+        flow.code_verifier = code_verifier
 
     try:
         flow.fetch_token(code=auth_code)
