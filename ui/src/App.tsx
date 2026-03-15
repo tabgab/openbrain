@@ -1127,7 +1127,12 @@ function GoogleIntegrationSection() {
         </button>
       </div>
 
-      {!hasCreds && (
+      {hasCreds ? (
+        <div style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', marginBottom: '0.75rem', fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <CheckCircle2 size={13} color="var(--success)" />
+          <span><strong>App credentials loaded</strong> — this is your OAuth app identity, shared by all accounts. Click <strong>Add Account</strong> to connect additional Google accounts.</span>
+        </div>
+      ) : (
         <div style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span>No credentials file loaded.</span>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', background: 'rgba(245,158,11,0.2)', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
