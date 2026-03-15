@@ -331,6 +331,130 @@ def chat_endpoint(payload: ChatMessage):
             "summary": summary,
         }
 
+
+@app.post("/api/chat/stream")
+def chat_stream_endpoint(payload: ChatMessage):
+    """Streaming chat — sends thinking steps as SSE events in real-time, then the final answer."""
+    import json as _json
+    import queue
+    import threading
+    from llm import get_embedding, categorize_and_extract, get_client
+    from db import add_memory, query_memories
+    from scrubber import scrub_text
+
+    text = payload.message.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    mode = payload.force_mode
+    if not mode:
+        mode = _detect_intent(text)
+
+    add_event("info", "chat", f"Chat stream ({mode}): '{text[:60]}'")
+
+    def _generate_events():
+        if mode == "question":
+            step_q: queue.Queue = queue.Queue()
+
+            def on_step(step_text: str):
+                step_q.put(("thinking", step_text))
+
+            result_holder: dict = {}
+
+            def _do_search():
+                try:
+                    embedding = get_embedding(text)
+                    results = query_memories(embedding=embedding, limit=5)
+                except Exception as e:
+                    result_holder["error"] = str(e)
+                    step_q.put(("done", None))
+                    return
+
+                try:
+                    from smart_search import augmented_search
+                    search_result = augmented_search(text, results or [], on_step=on_step)
+                    result_holder["search_result"] = search_result
+                    result_holder["results"] = results
+                except Exception as e:
+                    on_step(f"Smart search fallback: {e}")
+                    ctx = "\n\n".join(
+                        f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
+                    ) if results else ""
+                    srcs = [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results] if results else []
+                    result_holder["search_result"] = {"combined_context": ctx, "sources": srcs, "search_plan": {}}
+                    result_holder["results"] = results
+                step_q.put(("done", None))
+
+            t = threading.Thread(target=_do_search, daemon=True)
+            t.start()
+
+            # Yield thinking steps as they arrive
+            while True:
+                try:
+                    evt, data = step_q.get(timeout=120)
+                except Exception:
+                    break
+                if evt == "done":
+                    break
+                yield f"data: {_json.dumps({'type': 'thinking', 'step': data})}\n\n"
+
+            if "error" in result_holder:
+                err = result_holder["error"]
+                yield f"data: {_json.dumps({'type': 'answer', 'content': 'Failed to search: ' + err, 'sources': []})}\n\n"
+                return
+
+            search_result = result_holder["search_result"]
+            context = search_result["combined_context"]
+            sources = search_result["sources"]
+
+            if not context:
+                yield f"data: {_json.dumps({'type': 'answer', 'content': 'No relevant memories or data found in your Open Brain.', 'sources': []})}\n\n"
+                return
+
+            yield f"data: {_json.dumps({'type': 'thinking', 'step': 'Generating answer with reasoning model...'})}\n\n"
+
+            try:
+                reasoning_client, reasoning_model = get_client("reasoning")
+                resp = reasoning_client.chat.completions.create(
+                    model=reasoning_model,
+                    messages=[
+                        {"role": "system", "content": (
+                            "You are the Open Brain assistant. Answer the user's question based on "
+                            "ALL the information retrieved below — this includes stored memories AND "
+                            "live data from Google Calendar and Gmail searches. "
+                            "Use all available context to give the best possible answer. "
+                            "If multiple sources help, synthesize them. Be concise and helpful."
+                        )},
+                        {"role": "user", "content": f"Retrieved information:\n{context}\n\nQuestion: {text}"},
+                    ],
+                )
+                answer = resp.choices[0].message.content
+                add_event("success", "chat", f"Stream answered question ({len(sources)} sources)")
+                yield f"data: {_json.dumps({'type': 'answer', 'content': answer, 'sources': sources})}\n\n"
+            except Exception as e:
+                add_event("error", "chat", f"LLM answer failed: {e}")
+                yield f"data: {_json.dumps({'type': 'answer', 'content': 'Failed to generate answer: ' + str(e), 'sources': []})}\n\n"
+
+        else:
+            # Store as memory
+            scrubbed = scrub_text(text)
+            try:
+                extracted = categorize_and_extract(scrubbed)
+            except Exception:
+                extracted = {"category": "uncategorized"}
+            try:
+                embedding = get_embedding(scrubbed)
+            except Exception:
+                embedding = [0.0] * 1536
+            metadata = dict(extracted)
+            memory_id = add_memory(content=scrubbed, source_type="dashboard_chat", embedding=embedding, metadata=metadata)
+            cat = extracted.get("category", "uncategorized")
+            summ = extracted.get("summary", "")
+            add_event("success", "chat", f"Stream stored memory {memory_id} (category: {cat})")
+            yield f"data: {_json.dumps({'type': 'memory', 'content': 'Stored as memory (Category: ' + cat + ')', 'memory_id': memory_id, 'category': cat, 'summary': summ})}\n\n"
+
+    return StreamingResponse(_generate_events(), media_type="text/event-stream")
+
 def _detect_intent(text: str) -> str:
     """Detect whether a message is a question or a memory. Mirrors telegram_bot.is_question logic."""
     stripped = text.strip()

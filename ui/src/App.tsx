@@ -437,12 +437,13 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [mode, setMode] = useState<'' | 'question' | 'memory'>('');
+  const [liveThinking, setLiveThinking] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, liveThinking]);
 
   const send = async () => {
     const text = input.trim();
@@ -452,28 +453,63 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setSending(true);
+    setLiveThinking([]);
 
     try {
-      const res = await axios.post(`${API}/chat`, { message: text, force_mode: mode });
-      const data = res.data;
-      const brainMsg: ChatEntry = {
-        role: 'brain',
-        content: data.content,
-        type: data.type,
-        category: data.category,
-        summary: data.summary,
-        memory_id: data.memory_id,
-        sources: data.sources,
-        thinking: data.thinking,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, brainMsg]);
-      if (data.type === 'memory') onMemoryAdded();
+      const resp = await fetch(`${API}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, force_mode: mode }),
+      });
+
+      if (!resp.ok || !resp.body) throw new Error('Stream failed');
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'thinking') {
+              setLiveThinking(prev => [...prev, data.step]);
+            } else if (data.type === 'answer') {
+              setLiveThinking(prev => {
+                const finalThinking = [...prev];
+                setMessages(old => [...old, {
+                  role: 'brain', content: data.content, type: 'answer',
+                  sources: data.sources, thinking: finalThinking, timestamp: new Date(),
+                }]);
+                return [];
+              });
+            } else if (data.type === 'memory') {
+              setLiveThinking([]);
+              setMessages(old => [...old, {
+                role: 'brain', content: data.content, type: 'memory',
+                category: data.category, summary: data.summary,
+                memory_id: data.memory_id, timestamp: new Date(),
+              }]);
+              onMemoryAdded();
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
     } catch (err: any) {
-      const errMsg = err?.response?.data?.detail || err?.message || 'Something went wrong';
+      setLiveThinking([]);
+      const errMsg = err?.message || 'Something went wrong';
       setMessages(prev => [...prev, { role: 'brain', content: `Error: ${errMsg}`, timestamp: new Date() }]);
     } finally {
       setSending(false);
+      setLiveThinking([]);
       inputRef.current?.focus();
     }
   };
@@ -606,9 +642,24 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
           ))}
           {sending && (
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '0.75rem' }}>
-              <div style={{ padding: '0.75rem 1rem', borderRadius: '16px 16px 16px 4px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)' }}>
-                <Loader2 size={16} className="animate-spin" color="var(--accent)" />
-                <span style={{ marginLeft: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Thinking...</span>
+              <div style={{ padding: '0.75rem 1rem', borderRadius: '16px 16px 16px 4px', background: 'var(--glass-bg)', border: '1px solid rgba(139,92,246,0.25)', maxWidth: '75%', minWidth: '200px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: liveThinking.length > 0 ? '0.4rem' : 0 }}>
+                  <Loader2 size={14} className="animate-spin" color="#a78bfa" />
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#a78bfa' }}>
+                    <Cpu size={11} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '0.2rem' }} />
+                    Thinking{liveThinking.length > 0 ? ` (${liveThinking.length} steps)` : '...'}
+                  </span>
+                </div>
+                {liveThinking.length > 0 && (
+                  <div style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)', fontSize: '0.73rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                    {liveThinking.map((step, si) => (
+                      <div key={si} style={{ display: 'flex', gap: '0.35rem', alignItems: 'flex-start', marginBottom: si < liveThinking.length - 1 ? '0.15rem' : 0, opacity: si === liveThinking.length - 1 ? 1 : 0.6 }}>
+                        <span style={{ color: 'rgba(139,92,246,0.6)', fontWeight: 600, flexShrink: 0 }}>{si + 1}.</span>
+                        <span>{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

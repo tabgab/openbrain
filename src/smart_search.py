@@ -174,10 +174,13 @@ def _search_gmail(queries: list[str], newer_than: str = "365d",
 
 
 def augmented_search(question: str, memory_results: list[dict],
-                     account_email: str = "") -> dict:
+                     account_email: str = "",
+                     on_step: Optional[callable] = None) -> dict:
     """
     Given a question and initial memory search results, intelligently
     search Calendar and Gmail if relevant, and return combined context.
+
+    on_step: optional callback(step_text: str) called as each thinking step happens.
 
     Returns:
     {
@@ -189,13 +192,20 @@ def augmented_search(question: str, memory_results: list[dict],
         "search_plan": {...},
     }
     """
+    def _emit(text: str):
+        if on_step:
+            on_step(text)
+
     # Build memory context string
     memory_context = "\n\n".join(
         f"- [{r['source_type']} · {r['created_at']}] {r['content']}"
         for r in memory_results
     ) if memory_results else ""
 
+    _emit(f"Searched stored memories — found {len(memory_results)} relevant results")
+
     # Plan the searches
+    _emit("Analyzing question to plan searches...")
     plan = _plan_searches(question, memory_context)
     print(f"[smart_search] Plan: calendar={plan.get('search_calendar')}, "
           f"gmail={plan.get('search_gmail')}, "
@@ -203,18 +213,26 @@ def augmented_search(question: str, memory_results: list[dict],
           f"gmail_queries={plan.get('gmail_queries')}, "
           f"reason={plan.get('reasoning', '')}", flush=True)
 
+    if plan.get("reasoning"):
+        _emit(f"Search reasoning: {plan['reasoning']}")
+
     calendar_context = ""
     gmail_context = ""
     extra_sources = []
 
     # Search Calendar if planned
     if plan.get("search_calendar"):
+        cal_queries = plan.get("calendar_queries", [question])
+        t_min = plan.get("calendar_time_min", "")[:10]
+        t_max = plan.get("calendar_time_max", "")[:10]
+        _emit(f"Searching Google Calendar with queries: {cal_queries}" + (f" ({t_min} → {t_max})" if t_min else ""))
         cal_events = _search_calendar(
-            queries=plan.get("calendar_queries", [question]),
+            queries=cal_queries,
             time_min=plan.get("calendar_time_min", ""),
             time_max=plan.get("calendar_time_max", ""),
             email=account_email,
         )
+        _emit(f"Found {len(cal_events)} calendar events")
         if cal_events:
             cal_lines = []
             for ev in cal_events:
@@ -234,11 +252,14 @@ def augmented_search(question: str, memory_results: list[dict],
 
     # Search Gmail if planned
     if plan.get("search_gmail"):
+        gmail_queries = plan.get("gmail_queries", [question])
+        _emit(f"Searching Gmail with queries: {gmail_queries}")
         gmail_msgs = _search_gmail(
-            queries=plan.get("gmail_queries", [question]),
+            queries=gmail_queries,
             newer_than=plan.get("gmail_newer_than", "365d"),
             email=account_email,
         )
+        _emit(f"Found {len(gmail_msgs)} emails")
         if gmail_msgs:
             mail_lines = []
             for m in gmail_msgs:
@@ -253,6 +274,9 @@ def augmented_search(question: str, memory_results: list[dict],
             gmail_context = "\n".join(mail_lines)
 
     # Combine all context
+    n_mem = len(memory_results)
+    n_ext = len(extra_sources)
+    _emit(f"Combining {n_mem} memories + {n_ext} live sources → sending to reasoning model")
     parts = []
     if memory_context:
         parts.append(f"STORED MEMORIES:\n{memory_context}")
