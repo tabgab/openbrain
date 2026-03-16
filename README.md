@@ -19,6 +19,7 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Google Drive Sync** — OAuth 2.0 connection to Google Drive; search, filter, preview, and selectively ingest documents (Docs, Sheets, PDFs, etc.)
 - **Gmail Integration** — Search, preview, and ingest emails with optional image OCR; filter by label (including custom labels)
 - **Google Calendar** — Scan calendars with week/month/list views, per-calendar color-coded toggles, recurring event deduplication, and selective ingestion
+- **URL Content Extraction** — Send a URL (X/Twitter post, YouTube video, article, etc.) via Telegram or Dashboard Chat and the actual content is automatically fetched, extracted, and stored as a searchable memory
 - **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
 - **Smart Search** — Questions automatically search stored memories, Google Calendar, and Gmail with LLM-powered common-sense query expansion (e.g., "dentist" also searches "Nánási Dent", "Dentideal")
 - **Search Mode Toggle** — Choose between "Memory Only" (fast, stored data) and "Advanced Search" (memories + Calendar + Gmail) in both the dashboard and Telegram
@@ -218,7 +219,7 @@ Messages are grouped by sender (consecutive messages merged), PII-scrubbed, cate
 
 ## 🔌 MCP Server
 
-Other AI systems can connect to Open Brain as an MCP server with **17 tools**:
+Other AI systems can connect to Open Brain as an MCP server with **18 tools**:
 
 ### Memory Tools
 - `save_memory` — Store a fact/note (auto-categorized, embedded, PII-scrubbed)
@@ -230,6 +231,9 @@ Other AI systems can connect to Open Brain as an MCP server with **17 tools**:
 
 ### Document Tools
 - `ingest_document` — Parse and store a document (base64-encoded)
+
+### URL Tools
+- `ingest_url` — Fetch content from a URL (web page, X post, YouTube video, etc.) and store as a memory
 
 ### Vault Tools
 - `save_vault_secret` / `get_vault_secret` — Secure secret storage
@@ -314,6 +318,7 @@ openbrain/
 │   ├── google_integration.py # Google Drive, Gmail & Calendar OAuth + sync
 │   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
 │   ├── smart_search.py     # Augmented search (Calendar + Gmail + query expansion)
+│   ├── url_extract.py      # URL content extraction (X/Twitter, YouTube, general web)
 │   ├── scrubber.py         # PII detection and redaction
 │   ├── server.py           # MCP server (stdio + SSE)
 │   └── telegram_bot.py     # Telegram bot with auto question detection + search mode

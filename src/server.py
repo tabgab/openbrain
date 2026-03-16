@@ -190,6 +190,65 @@ def ingest_document(filename: str, file_base64: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# URL ingestion
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def ingest_url(url: str, user_note: str = "") -> str:
+    """
+    Fetch content from a URL (web page, X/Twitter post, YouTube video, etc.)
+    and store it as a searchable memory in the Open Brain.
+    Optionally add a user_note for extra context.
+    """
+    from url_extract import extract_url_content
+
+    result = extract_url_content(url)
+    if result.get("error") and not result.get("content"):
+        return f"Could not extract content from {url}: {result['error']}"
+
+    # Build memory content
+    parts = []
+    platform = result.get("platform", "web")
+    title = result.get("title", "")
+    author = result.get("author", "")
+    content = result.get("content", "")
+
+    header = f"[{platform}]"
+    if title:
+        header += f" {title}"
+    if author:
+        header += f" by {author}"
+    parts.append(header)
+
+    if user_note:
+        parts.append(f"Note: {user_note}")
+    parts.append(content)
+    parts.append(f"Source: {url}")
+
+    full_text = "\n".join(parts)
+
+    metadata = categorize_and_extract(full_text[:2000])
+    metadata["source_url"] = url
+    metadata["platform"] = platform
+
+    embedding = get_embedding(full_text[:8000])
+    memory_id = add_memory(
+        content=full_text,
+        source_type=f"url_{platform}",
+        embedding=embedding,
+        metadata=metadata,
+    )
+    return (
+        f"URL content ingested successfully.\n"
+        f"Memory ID: {memory_id}\n"
+        f"Platform: {platform}\n"
+        f"Title: {title}\n"
+        f"Category: {metadata.get('category')}\n"
+        f"Summary: {metadata.get('summary', '')[:200]}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Vault tools
 # ---------------------------------------------------------------------------
 

@@ -319,6 +319,12 @@ def chat_endpoint(payload: ChatMessage):
 
     else:
         # Store as memory
+        from url_extract import enrich_text_with_urls, detect_urls
+        if detect_urls(text):
+            try:
+                text = enrich_text_with_urls(text)
+            except Exception:
+                pass
         scrubbed = scrub_text(text)
         try:
             extracted = categorize_and_extract(scrubbed)
@@ -458,7 +464,14 @@ def chat_stream_endpoint(payload: ChatMessage):
 
         else:
             # Store as memory
-            scrubbed = scrub_text(text)
+            from url_extract import enrich_text_with_urls, detect_urls
+            store_text = text
+            if detect_urls(store_text):
+                try:
+                    store_text = enrich_text_with_urls(store_text)
+                except Exception:
+                    pass
+            scrubbed = scrub_text(store_text)
             try:
                 extracted = categorize_and_extract(scrubbed)
             except Exception:

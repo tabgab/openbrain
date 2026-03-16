@@ -10,6 +10,7 @@ from db import add_memory, query_memories
 from llm import categorize_and_extract, get_embedding, get_client
 from scrubber import scrub_text
 from ingest import ingest_document
+from url_extract import enrich_text_with_urls, detect_urls
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip("'\"")
 AUTHORIZED_CHAT_ID = os.getenv("TELEGRAM_AUTHORIZED_CHAT_ID", "").strip("'\"")
@@ -337,7 +338,18 @@ def process_message(message):
 
     post_log("info", f"Storing memory from chat_id={chat_id}: '{text[:60]}...'")
 
-    # 0. Scrub for PII
+    # 0a. Enrich URLs with extracted content
+    if detect_urls(text):
+        post_log("info", f"URLs detected, extracting content...")
+        try:
+            enriched = enrich_text_with_urls(text)
+            if enriched != text:
+                post_log("info", f"URL content extracted ({len(enriched)} chars)")
+                text = enriched
+        except Exception as e:
+            post_log("warning", f"URL extraction failed (storing raw): {e}")
+
+    # 0b. Scrub for PII
     text = scrub_text(text)
 
     # 1. Categorize
