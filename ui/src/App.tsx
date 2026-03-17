@@ -1389,9 +1389,18 @@ function GoogleIntegrationSection() {
 
   const connect = async () => {
     setConnecting(true); setMsg(null);
+    // Open window synchronously (before await) so Safari doesn't block it
+    const win = window.open('about:blank', '_blank');
     try {
       const res = await axios.post(`${API}/google/connect`);
-      if (res.data.auth_url) window.open(res.data.auth_url, '_blank');
+      if (res.data.auth_url) {
+        if (win) {
+          win.location.href = res.data.auth_url;
+        } else {
+          // Popup was blocked — show a clickable fallback link
+          setMsg({ ok: false, text: `Popup blocked — open this link to authorize: ${res.data.auth_url}` });
+        }
+      }
       const poll = setInterval(async () => {
         const s = await axios.get(`${API}/google/status`);
         const accts = s.data.accounts || [];
@@ -1405,6 +1414,7 @@ function GoogleIntegrationSection() {
       }, 3000);
       setTimeout(() => { clearInterval(poll); setConnecting(false); }, 120000);
     } catch (err: any) {
+      if (win) win.close();
       setMsg({ ok: false, text: err?.response?.data?.detail || 'Failed to start OAuth' });
       setConnecting(false);
     }
@@ -1530,14 +1540,22 @@ function GoogleIntegrationSection() {
   const openPhotosPicker = async () => {
     if (!activeAccount) return;
     setMsg(null); setPhotosItems([]); setPhotosSelected(new Set()); setPhotosIngestProgress(null);
+    // Open window synchronously (before await) so Safari doesn't block it
+    const win = window.open('about:blank', '_blank');
     try {
       const res = await axios.post(`${API}/google/photos/create-session`, {
         email: activeAccount, media_type: 'PHOTO', favorites_only: photosFavoritesOnly,
       });
       const sid = res.data.session_id;
       const pickerUri = res.data.picker_uri;
-      // Open the picker in a new tab
-      if (pickerUri) window.open(pickerUri, '_blank');
+      if (pickerUri) {
+        if (win) {
+          win.location.href = pickerUri;
+        } else {
+          // Popup was blocked — show a clickable fallback link
+          setMsg({ ok: false, text: `Popup blocked — open this link to pick photos: ${pickerUri}` });
+        }
+      }
       // Start polling
       setPhotosPolling(true);
       const poll = setInterval(async () => {
@@ -1560,6 +1578,7 @@ function GoogleIntegrationSection() {
       // Timeout after 5 minutes
       setTimeout(() => { clearInterval(poll); setPhotosPolling(false); }, 300000);
     } catch (err: any) {
+      if (win) win.close();
       setMsg({ ok: false, text: err?.response?.data?.detail || 'Failed to create Photos Picker session' });
     }
   };
