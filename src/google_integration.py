@@ -1104,19 +1104,18 @@ def list_photos_media_items(email: str, session_id: str) -> dict:
             data = resp.json()
             for item in data.get("mediaItems", []):
                 mid = item.get("id", "")
-                media_meta = item.get("mediaMetadata", {}) or {}
-                # Get photo metadata
-                photo_meta = media_meta.get("photo", {}) or {}
+                media_file = item.get("mediaFile", {}) or {}
+                file_meta = media_file.get("mediaFileMetadata", {}) or {}
                 all_items.append({
                     "id": mid,
-                    "baseUrl": item.get("baseUrl", ""),
-                    "mimeType": item.get("mimeType", "image/jpeg"),
-                    "filename": item.get("filename", f"photo_{mid[:8]}.jpg"),
-                    "width": media_meta.get("width", ""),
-                    "height": media_meta.get("height", ""),
-                    "creationTime": media_meta.get("creationTime", ""),
-                    "cameraMake": photo_meta.get("cameraMake", ""),
-                    "cameraModel": photo_meta.get("cameraModel", ""),
+                    "baseUrl": media_file.get("baseUrl", ""),
+                    "mimeType": media_file.get("mimeType", "image/jpeg"),
+                    "filename": media_file.get("filename", f"photo_{mid[:8]}.jpg"),
+                    "width": str(file_meta.get("width", "")),
+                    "height": str(file_meta.get("height", "")),
+                    "creationTime": item.get("createTime", ""),
+                    "cameraMake": file_meta.get("cameraMake", ""),
+                    "cameraModel": file_meta.get("cameraModel", ""),
                     "already_synced": mid in synced_ids,
                 })
             page_token = data.get("nextPageToken", "")
@@ -1161,8 +1160,8 @@ def ingest_photos(email: str, items: list[dict]) -> dict:
             continue
 
         try:
-            # Download full-resolution image (=d for original bytes)
-            download_url = f"{base_url}=d"
+            # Download full-resolution image (=w0-h0 keeps original dimensions)
+            download_url = f"{base_url}=w0-h0"
             img_resp = http_requests.get(download_url, timeout=60)
             img_resp.raise_for_status()
             img_bytes = img_resp.content
