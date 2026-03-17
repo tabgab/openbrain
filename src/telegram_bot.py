@@ -195,8 +195,22 @@ def handle_voice(chat_id, message):
 
     if result.get("error") or not result.get("text"):
         error = result.get("error", "Empty transcription")
-        post_log("error", f"Transcription failed: {error}")
-        send_message(chat_id, f"❌ Transcription failed: {error}")
+        provider = result.get("provider", "unknown")
+        post_log("error", f"Transcription failed ({provider}): {error}")
+
+        # Build a user-friendly message with the reason and hints
+        hint = ""
+        err_lower = error.lower()
+        if "api_key" in err_lower or "api key" in err_lower or "unauthorized" in err_lower or "401" in err_lower:
+            hint = "\n💡 Check your API key in Settings → Voice Transcription."
+        elif "not installed" in err_lower or "import" in err_lower:
+            hint = "\n💡 The required package isn't installed. Go to Settings → Voice Transcription to install it."
+        elif "timeout" in err_lower:
+            hint = "\n💡 The transcription service timed out. Try again or switch providers in Settings."
+        elif "empty" in err_lower:
+            hint = "\n💡 No speech detected. Make sure the voice note contains audible speech."
+
+        send_message(chat_id, f"❌ Transcription failed (provider: {provider}):\n{error}{hint}")
         return
 
     text = result["text"].strip()
