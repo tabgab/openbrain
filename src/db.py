@@ -191,6 +191,25 @@ def store_secret(key: str, value: str, description: str = ""):
     finally:
         conn.close()
 
+def search_vault(query: str):
+    """Searches vault entries by keyword match on secret_key and description.
+    Returns matching entries (key + description only, NOT the secret values)
+    so the LLM can decide which to reveal."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        q = f"%{query.lower()}%"
+        cur.execute(
+            "SELECT secret_key, description FROM vault "
+            "WHERE LOWER(secret_key) LIKE %s OR LOWER(description) LIKE %s "
+            "ORDER BY secret_key LIMIT 20;",
+            (q, q),
+        )
+        return [{"key": row[0], "description": row[1]} for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def retrieve_secret(key: str):
     """Retrieves a secret from the vault."""
     conn = get_connection()

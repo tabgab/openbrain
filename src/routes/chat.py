@@ -78,6 +78,13 @@ def chat_endpoint(payload: ChatMessage):
             ) if results else ""
             sources = [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results] if results else []
 
+        # Also search the secure vault for relevant secrets
+        vault_context = _search_vault_for_query(text)
+        if vault_context:
+            context = (context + "\n\n" + vault_context) if context else vault_context
+            sources.append({"id": "vault", "source_type": "secure_vault", "summary": "Secure vault entries"})
+            add_event("info", "chat", "Vault secrets included in context")
+
         if not context:
             return {"type": "answer", "content": "No relevant memories or data found in your Open Brain.", "sources": []}
 
@@ -219,6 +226,15 @@ def chat_stream_endpoint(payload: ChatMessage):
                     srcs = [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results] if results else []
                     result_holder["search_result"] = {"combined_context": ctx, "sources": srcs, "search_plan": {}}
                     result_holder["results"] = results
+
+                # Also search the secure vault
+                vault_ctx = _search_vault_for_query(text)
+                if vault_ctx:
+                    sr = result_holder["search_result"]
+                    sr["combined_context"] = (sr["combined_context"] + "\n\n" + vault_ctx) if sr["combined_context"] else vault_ctx
+                    sr["sources"].append({"id": "vault", "source_type": "secure_vault", "summary": "Secure vault entries"})
+                    on_step("Searched secure vault — found matching entries")
+
                 step_q.put(("done", None))
 
             t = threading.Thread(target=_do_search, daemon=True)
@@ -297,6 +313,33 @@ def chat_stream_endpoint(payload: ChatMessage):
             yield f"data: {_json.dumps({'type': 'memory', 'content': 'Stored as memory (Category: ' + cat + ')', 'memory_id': memory_id, 'category': cat, 'summary': summ})}\n\n"
 
     return StreamingResponse(_generate_events(), media_type="text/event-stream")
+
+
+def _search_vault_for_query(text: str) -> str:
+    """Search the secure vault for secrets relevant to the user's question.
+    Returns formatted context string with vault entries, or empty string."""
+    try:
+        from db import search_vault, retrieve_secret
+        # Extract meaningful search keywords from the question
+        words = text.lower().split()
+        # Search with individual significant words and the full query
+        seen_keys = set()
+        matches = []
+        for term in [text] + [w for w in words if len(w) > 3]:
+            for entry in search_vault(term):
+                if entry["key"] not in seen_keys:
+                    seen_keys.add(entry["key"])
+                    # Retrieve the actual secret value
+                    secret = retrieve_secret(entry["key"])
+                    if secret:
+                        matches.append(
+                            f"- [VAULT: {entry['key']}] {entry['description'] or 'No description'}: {secret['value']}"
+                        )
+        if matches:
+            return "Secure Vault entries:\n" + "\n".join(matches)
+    except Exception:
+        pass
+    return ""
 
 
 def _detect_intent(text: str) -> str:
