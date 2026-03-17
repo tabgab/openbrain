@@ -11,6 +11,7 @@ from llm import categorize_and_extract, get_embedding, get_client
 from scrubber import scrub_text
 from ingest import ingest_document
 from url_extract import enrich_text_with_urls, detect_urls
+from transcribe import transcribe_audio
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip("'\"")
 AUTHORIZED_CHAT_ID = os.getenv("TELEGRAM_AUTHORIZED_CHAT_ID", "").strip("'\"")
@@ -161,6 +162,89 @@ def handle_attachment(chat_id, message):
         return True
 
 
+def handle_voice(chat_id, message):
+    """Process a voice note or audio message: transcribe, then route as question or memory."""
+    voice = message.get("voice") or message.get("audio")
+    if not voice:
+        return
+
+    file_id = voice["file_id"]
+    duration = voice.get("duration", 0)
+    mime = voice.get("mime_type", "audio/ogg")
+    ext = ".ogg"
+    if "mp3" in mime:
+        ext = ".mp3"
+    elif "mp4" in mime or "m4a" in mime:
+        ext = ".m4a"
+    elif "wav" in mime:
+        ext = ".wav"
+
+    post_log("info", f"Received voice/audio ({duration}s, {mime}) from chat_id={chat_id}")
+    send_message(chat_id, f"🎤 Transcribing voice message ({duration}s)...")
+
+    try:
+        file_bytes, resolved_name = download_telegram_file(file_id)
+        filename = resolved_name if resolved_name else f"voice{ext}"
+    except Exception as e:
+        post_log("error", f"Failed to download voice file: {e}")
+        send_message(chat_id, f"❌ Failed to download voice message: {e}")
+        return
+
+    # Transcribe
+    result = transcribe_audio(file_bytes, filename)
+
+    if result.get("error") or not result.get("text"):
+        error = result.get("error", "Empty transcription")
+        post_log("error", f"Transcription failed: {error}")
+        send_message(chat_id, f"❌ Transcription failed: {error}")
+        return
+
+    text = result["text"].strip()
+    language = result.get("language", "unknown")
+    provider = result.get("provider", "unknown")
+    post_log("success", f"Transcribed ({provider}, lang={language}): '{text[:80]}...'")
+    send_message(chat_id, f"🎤 Transcribed ({language}):\n\n{text[:500]}{'...' if len(text) > 500 else ''}")
+
+    # Route: question or memory — same logic as text messages
+    if is_question(text):
+        post_log("info", f"Voice transcription detected as question")
+        prompt_search_mode(chat_id, text)
+        return
+
+    # Store as memory
+    post_log("info", f"Storing voice transcription as memory")
+    scrubbed = scrub_text(text)
+
+    try:
+        extracted = categorize_and_extract(scrubbed[:2000])
+    except Exception:
+        extracted = {"category": "uncategorized"}
+
+    extracted["source"] = "telegram_voice"
+    extracted["language"] = language
+    extracted["stt_provider"] = provider
+    extracted["duration_seconds"] = duration
+
+    try:
+        embedding = get_embedding(scrubbed[:8000])
+    except Exception:
+        embedding = [0.0] * 1536
+
+    try:
+        memory_id = add_memory(
+            content=scrubbed,
+            source_type="telegram_voice",
+            embedding=embedding,
+            metadata=extracted,
+        )
+        category = extracted.get("category", "unknown")
+        post_log("success", f"Voice memory saved — ID: {memory_id}, Category: {category}")
+        send_message(chat_id, f"✅ Voice note stored.\nLanguage: {language}\nCategory: {category}\nID: {memory_id}")
+    except Exception as e:
+        post_log("error", f"Failed to save voice memory: {e}")
+        send_message(chat_id, f"❌ Failed to save voice note: {e}")
+
+
 QUESTION_WORDS = {
     "who", "what", "when", "where", "why", "how",
     "do", "does", "did", "is", "are", "was", "were",
@@ -303,13 +387,18 @@ def process_message(message):
         send_message(chat_id, "❌ You are not authorized to write to this Open Brain.")
         return
 
+    # Handle voice notes and audio messages
+    if "voice" in message or "audio" in message:
+        handle_voice(chat_id, message)
+        return
+
     # Handle attachments (documents, photos)
     if "document" in message or "photo" in message:
         handle_attachment(chat_id, message)
         return
 
     if not text:
-        post_log("info", "Received unsupported message type (sticker, voice, etc.), ignoring.")
+        post_log("info", "Received unsupported message type (sticker, etc.), ignoring.")
         return
 
     # Handle questions — explicit prefixes (fast path)

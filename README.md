@@ -11,7 +11,8 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Semantic Memory Search** — Store anything, find it later by meaning (not just keywords) using pgvector embeddings
 - **Multi-Model AI** — Configurable LLM roles (text, reasoning, coding, vision, embedding) via OpenRouter, supporting 200+ models
 - **Document Ingestion** — Upload PDFs (including scanned), images, Word docs, Excel files — auto-OCR, categorize, and embed
-- **Telegram Bot** — Send text, photos, or documents via Telegram to capture memories; ask questions naturally
+- **Telegram Bot** — Send text, photos, documents, or voice notes via Telegram to capture memories; ask questions naturally
+- **Voice Note Transcription** — Send a voice message via Telegram; it's auto-transcribed (language detected), then routed as a question or stored as a memory. Configurable STT provider: OpenAI Whisper API, local Whisper, or Groq
 - **Auto Question Detection** — The bot intelligently distinguishes questions from memories without needing prefixes
 - **MCP Server** — Full Model Context Protocol support (stdio + SSE) so other AI systems can use your brain as a tool
 - **PII Scrubbing** — Automatic detection and redaction of secrets, API keys, credit cards, SSNs
@@ -20,6 +21,7 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Gmail Integration** — Search, preview, and ingest emails with optional image OCR; filter by label (including custom labels)
 - **Google Calendar** — Scan calendars with week/month/list views, per-calendar color-coded toggles, recurring event deduplication, and selective ingestion
 - **URL Content Extraction** — Send a URL (X/Twitter post, YouTube video, article, etc.) via Telegram or Dashboard Chat and the actual content is automatically fetched, extracted, and stored as a searchable memory
+- **YouTube Video Summarization** — YouTube links are enriched with the actual video transcript (via captions), summarized by an LLM, and stored with title, channel, summary, and source URL for full searchability
 - **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
 - **Smart Search** — Questions automatically search stored memories, Google Calendar, and Gmail with LLM-powered common-sense query expansion (e.g., "dentist" also searches "Nánási Dent", "Dentideal")
 - **Search Mode Toggle** — Choose between "Memory Only" (fast, stored data) and "Advanced Search" (memories + Calendar + Gmail) in both the dashboard and Telegram
@@ -154,6 +156,8 @@ Send messages to your bot on Telegram:
 | `m: <text>` | Force-store as memory (even if it looks like a question) |
 | Send a photo | Vision model describes it, stored as memory |
 | Send a document | PDF/Word/Excel parsed, categorized, and stored |
+| Send a voice note | Transcribed (language auto-detected), then routed as question or stored as memory |
+| Send a YouTube link | Video transcript fetched, LLM-summarized, stored with URL |
 
 The bot auto-detects questions using heuristics + LLM classification — no prefix needed in most cases.
 
@@ -318,7 +322,8 @@ openbrain/
 │   ├── google_integration.py # Google Drive, Gmail & Calendar OAuth + sync
 │   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
 │   ├── smart_search.py     # Augmented search (Calendar + Gmail + query expansion)
-│   ├── url_extract.py      # URL content extraction (X/Twitter, YouTube, general web)
+│   ├── url_extract.py      # URL content extraction (X/Twitter, YouTube transcripts + summary, general web)
+│   ├── transcribe.py       # Speech-to-text (OpenAI Whisper, local Whisper, Groq)
 │   ├── scrubber.py         # PII detection and redaction
 │   ├── server.py           # MCP server (stdio + SSE)
 │   └── telegram_bot.py     # Telegram bot with auto question detection + search mode

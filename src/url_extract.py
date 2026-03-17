@@ -151,8 +151,57 @@ def _extract_x_twitter(url: str) -> dict:
     }
 
 
+def _extract_video_id(url: str) -> Optional[str]:
+    """Extract YouTube video ID from various URL formats."""
+    parsed = urlparse(url)
+    if parsed.hostname in ("youtu.be",):
+        return parsed.path.lstrip("/").split("/")[0]
+    if parsed.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
+        if parsed.path == "/watch":
+            from urllib.parse import parse_qs
+            params = parse_qs(parsed.query)
+            return params.get("v", [None])[0]
+        if parsed.path.startswith(("/embed/", "/v/", "/shorts/")):
+            return parsed.path.split("/")[2]
+    return None
+
+
+def _get_youtube_transcript(video_id: str) -> Optional[str]:
+    """Fetch YouTube transcript/captions using youtube-transcript-api."""
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        ytt_api = YouTubeTranscriptApi()
+        transcript = ytt_api.fetch(video_id)
+        lines = [snippet.text for snippet in transcript.snippets]
+        return " ".join(lines)
+    except Exception:
+        return None
+
+
+def _summarize_text(text: str, context: str = "YouTube video transcript") -> str:
+    """Use the text LLM to summarize a long text."""
+    try:
+        from llm import get_client
+        text_client, text_model = get_client("text")
+        resp = text_client.chat.completions.create(
+            model=text_model,
+            messages=[
+                {"role": "system", "content": (
+                    f"Summarize the following {context} concisely. "
+                    "Include the key topics, main points, and any actionable takeaways. "
+                    "Keep it under 500 words."
+                )},
+                {"role": "user", "content": text[:8000]},
+            ],
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception:
+        # Fallback: truncate
+        return text[:1500] + ("..." if len(text) > 1500 else "")
+
+
 def _extract_youtube(url: str) -> dict:
-    """Extract YouTube video info using oEmbed + page meta tags."""
+    """Extract YouTube video info: title, author, transcript, and LLM summary."""
     # oEmbed for title and author
     oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
     title = ""
@@ -166,20 +215,38 @@ def _extract_youtube(url: str) -> dict:
     except Exception:
         pass
 
-    # Fetch the page for meta description
-    description = ""
-    try:
-        page_resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
-        page_resp.raise_for_status()
-        description = _extract_meta_description(page_resp.text)
-    except Exception:
-        pass
+    # Try to get the actual video transcript
+    transcript_text = None
+    video_id = _extract_video_id(url)
+    if video_id:
+        transcript_text = _get_youtube_transcript(video_id)
 
+    # Build content
     content_parts = []
     if title:
-        content_parts.append(title)
-    if description:
-        content_parts.append(description)
+        content_parts.append(f"Title: {title}")
+    if author:
+        content_parts.append(f"Channel: {author}")
+
+    if transcript_text:
+        # Summarize long transcripts with LLM
+        if len(transcript_text) > 2000:
+            summary = _summarize_text(transcript_text, f"YouTube video '{title}' transcript")
+            content_parts.append(f"Summary: {summary}")
+        else:
+            content_parts.append(f"Transcript: {transcript_text}")
+    else:
+        # Fallback to meta description
+        try:
+            page_resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
+            page_resp.raise_for_status()
+            description = _extract_meta_description(page_resp.text)
+            if description:
+                content_parts.append(f"Description: {description}")
+        except Exception:
+            pass
+
+    content_parts.append(f"Source: {url}")
 
     return {
         "url": url,
@@ -187,7 +254,7 @@ def _extract_youtube(url: str) -> dict:
         "content": "\n".join(content_parts) if content_parts else "",
         "author": author,
         "platform": "youtube",
-        "error": None if content_parts else "Could not extract YouTube content",
+        "error": None if len(content_parts) > 1 else "Could not extract YouTube content",
     }
 
 
