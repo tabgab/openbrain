@@ -17,6 +17,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Suppress the "leaked semaphore objects" warning from Python's multiprocessing
+# resource_tracker on shutdown. This is caused by PyTorch/Whisper's internal
+# multiprocessing and is harmless — the OS reclaims the semaphores on exit.
+warnings.filterwarnings("ignore", message=".*resource_tracker.*leaked semaphore.*", category=UserWarning)
+
 STT_PROVIDER = os.getenv("STT_PROVIDER", "openai").strip("'\"").lower()
 
 # Formats accepted natively by OpenAI Whisper API

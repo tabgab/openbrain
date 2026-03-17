@@ -1,5 +1,9 @@
 import sys
 import os
+import warnings
+# Suppress multiprocessing resource_tracker "leaked semaphore" warning on shutdown
+# (caused by PyTorch/Whisper internals, harmless — OS reclaims semaphores on exit)
+warnings.filterwarnings("ignore", message=".*resource_tracker.*", category=UserWarning)
 # Ensure src/ is in path so 'db', 'llm' etc. are importable when uvicorn runs from project root
 sys.path.insert(0, os.path.dirname(__file__))
 
