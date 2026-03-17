@@ -1,11 +1,12 @@
 """
-Open Brain — Google Drive, Gmail & Calendar Integration (Multi-Account)
-------------------------------------------------------------------------
+Open Brain — Google Drive, Gmail, Calendar & Photos Integration (Multi-Account)
+--------------------------------------------------------------------------------
 Handles:
   - OAuth 2.0 flow with multiple Google accounts
   - Google Drive: search/filter files → preview → selective ingest
   - Gmail: search/filter emails → preview → selective ingest
   - Google Calendar: scan events → deduplicate recurring → selective ingest
+  - Google Photos: Picker API sessions → user selects photos → download & ingest via vision model
 
 Accounts are stored in google_accounts/<email>.json with tokens and sync state.
 Requires google_credentials.json (OAuth 2.0 Web credentials) from Google Cloud Console.
@@ -17,6 +18,7 @@ import json
 import datetime
 import base64
 import re
+import requests as http_requests
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -29,6 +31,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -150,6 +153,7 @@ def list_accounts() -> list[dict]:
                 "connected_at": data.get("connected_at"),
                 "drive_last_sync": data.get("drive_last_sync"),
                 "gmail_last_sync": data.get("gmail_last_sync"),
+                "photos_last_sync": data.get("photos_last_sync"),
             })
         except Exception:
             continue
@@ -985,6 +989,226 @@ def _fetch_event(service, ev_id: str) -> dict | None:
     except Exception:
         pass
     return None
+
+
+# ---------------------------------------------------------------------------
+# Google Photos — Picker API Sessions / Download / Ingest
+# ---------------------------------------------------------------------------
+
+_PHOTOS_PICKER_BASE = "https://photospicker.googleapis.com/v1"
+
+
+def _photos_headers(creds: Credentials) -> dict:
+    """Build auth headers for Photos Picker API (REST, not discovery-based)."""
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    return {"Authorization": f"Bearer {creds.token}", "Content-Type": "application/json"}
+
+
+def create_photos_session(email: str, media_type: str = "PHOTO",
+                          favorites_only: bool = False) -> dict:
+    """Create a Google Photos Picker session. Returns the picker URI for the user to open.
+
+    Args:
+        media_type: 'PHOTO', 'VIDEO', or '' for all
+        favorites_only: if True, only show favorites
+    """
+    creds = get_credentials_for(email)
+    if not creds:
+        return {"error": f"Account {email} not connected or token expired."}
+
+    picker_filter: dict = {}
+    if media_type:
+        picker_filter["mediaTypeFilter"] = {"includedMediaTypes": [media_type]}
+    if favorites_only:
+        picker_filter["featureFilter"] = {"includedFeatures": ["FAVORITES"]}
+
+    body = {}
+    if picker_filter:
+        body["pickerFilter"] = picker_filter
+
+    try:
+        resp = http_requests.post(
+            f"{_PHOTOS_PICKER_BASE}/sessions",
+            headers=_photos_headers(creds),
+            json=body,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "session_id": data.get("id", ""),
+            "picker_uri": data.get("pickerUri", ""),
+            "expire_time": data.get("expireTime", ""),
+            "media_items_set": data.get("mediaItemsSet", False),
+        }
+    except Exception as e:
+        return {"error": f"Photos Picker API error: {e}"}
+
+
+def poll_photos_session(email: str, session_id: str) -> dict:
+    """Poll a Photos Picker session to check if the user has finished selecting."""
+    creds = get_credentials_for(email)
+    if not creds:
+        return {"error": f"Account {email} not connected."}
+
+    try:
+        resp = http_requests.get(
+            f"{_PHOTOS_PICKER_BASE}/sessions/{session_id}",
+            headers=_photos_headers(creds),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "session_id": data.get("id", ""),
+            "picker_uri": data.get("pickerUri", ""),
+            "media_items_set": data.get("mediaItemsSet", False),
+            "expire_time": data.get("expireTime", ""),
+        }
+    except Exception as e:
+        return {"error": f"Photos Picker poll error: {e}"}
+
+
+def list_photos_media_items(email: str, session_id: str) -> dict:
+    """List media items the user selected in a completed Picker session."""
+    creds = get_credentials_for(email)
+    if not creds:
+        return {"error": f"Account {email} not connected."}
+
+    acct = _load_account(email)
+    synced_ids = set(acct.get("photos_synced_ids", []))
+
+    all_items: list[dict] = []
+    page_token = ""
+    try:
+        while True:
+            url = f"{_PHOTOS_PICKER_BASE}/mediaItems?sessionId={session_id}&pageSize=100"
+            if page_token:
+                url += f"&pageToken={page_token}"
+            resp = http_requests.get(url, headers=_photos_headers(creds), timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("mediaItems", []):
+                mid = item.get("id", "")
+                media_meta = item.get("mediaMetadata", {}) or {}
+                # Get photo metadata
+                photo_meta = media_meta.get("photo", {}) or {}
+                all_items.append({
+                    "id": mid,
+                    "baseUrl": item.get("baseUrl", ""),
+                    "mimeType": item.get("mimeType", "image/jpeg"),
+                    "filename": item.get("filename", f"photo_{mid[:8]}.jpg"),
+                    "width": media_meta.get("width", ""),
+                    "height": media_meta.get("height", ""),
+                    "creationTime": media_meta.get("creationTime", ""),
+                    "cameraMake": photo_meta.get("cameraMake", ""),
+                    "cameraModel": photo_meta.get("cameraModel", ""),
+                    "already_synced": mid in synced_ids,
+                })
+            page_token = data.get("nextPageToken", "")
+            if not page_token:
+                break
+    except Exception as e:
+        return {"error": f"Photos list error: {e}"}
+
+    return {"items": all_items, "total": len(all_items)}
+
+
+def ingest_photos(email: str, items: list[dict]) -> dict:
+    """Download and ingest selected Google Photos via the vision model.
+
+    Args:
+        items: list of dicts with at least {id, baseUrl, filename, mimeType, creationTime}
+               (as returned by list_photos_media_items)
+    """
+    creds = get_credentials_for(email)
+    if not creds:
+        return {"error": f"Account {email} not connected."}
+
+    from llm import describe_image, get_embedding
+    from scrubber import scrub_text
+    from db import add_memory
+
+    acct = _load_account(email)
+    synced_ids = set(acct.get("photos_synced_ids", []))
+
+    ingested = []
+    errors = []
+
+    for item in items:
+        mid = item.get("id", "")
+        base_url = item.get("baseUrl", "")
+        filename = item.get("filename", "photo.jpg")
+        mime = item.get("mimeType", "image/jpeg")
+        creation_time = item.get("creationTime", "")
+
+        if not base_url:
+            errors.append({"id": mid, "error": "No baseUrl"})
+            continue
+
+        try:
+            # Download full-resolution image (=d for original bytes)
+            download_url = f"{base_url}=d"
+            img_resp = http_requests.get(download_url, timeout=60)
+            img_resp.raise_for_status()
+            img_bytes = img_resp.content
+
+            if len(img_bytes) == 0:
+                errors.append({"id": mid, "filename": filename, "error": "Empty image"})
+                continue
+
+            # Use vision model to describe the image (expects raw bytes)
+            description = describe_image(img_bytes, mime)
+
+            # Build content
+            parts = [f"Google Photos image: {filename}"]
+            if creation_time:
+                parts.append(f"Taken: {creation_time}")
+            camera = item.get("cameraMake", "")
+            model = item.get("cameraModel", "")
+            if camera or model:
+                parts.append(f"Camera: {' '.join(filter(None, [camera, model]))}")
+            dims = ""
+            if item.get("width") and item.get("height"):
+                dims = f"{item['width']}×{item['height']}"
+            if dims:
+                parts.append(f"Resolution: {dims}")
+            parts.append(f"\n{description}")
+
+            content = "\n".join(parts)
+            scrubbed = scrub_text(content)
+
+            metadata = {
+                "category": "photo",
+                "filename": filename,
+                "google_photos_id": mid,
+                "google_account": email,
+                "creation_time": creation_time,
+                "mime_type": mime,
+                "resolution": dims,
+                "camera": f"{camera} {model}".strip(),
+            }
+
+            embedding = get_embedding(scrubbed[:8000])
+            memory_id = add_memory(
+                content=scrubbed, source_type="google_photos",
+                embedding=embedding, metadata=metadata,
+            )
+            ingested.append({
+                "id": mid, "filename": filename,
+                "memory_id": memory_id, "description": description[:200],
+            })
+            synced_ids.add(mid)
+
+        except Exception as e:
+            errors.append({"id": mid, "filename": filename, "error": str(e)})
+
+    acct["photos_synced_ids"] = list(synced_ids)[-5000:]
+    acct["photos_last_sync"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    _save_account(email, acct)
+
+    return {"ingested": ingested, "errors": errors}
 
 
 def _infer_recurrence(dates: list[str], count: int) -> str:

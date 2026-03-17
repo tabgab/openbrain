@@ -20,6 +20,7 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Google Drive Sync** — OAuth 2.0 connection to Google Drive; search, filter, preview, and selectively ingest documents (Docs, Sheets, PDFs, etc.)
 - **Gmail Integration** — Search, preview, and ingest emails with optional image OCR; filter by label (including custom labels)
 - **Google Calendar** — Scan calendars with week/month/list views, per-calendar color-coded toggles, recurring event deduplication, and selective ingestion
+- **Google Photos** — Ingest photos via the Picker API; user selects images in Google's native picker, photos are described by the vision model and stored as searchable memories with metadata (camera, resolution, date)
 - **URL Content Extraction** — Send a URL (X/Twitter post, YouTube video, article, etc.) via Telegram or Dashboard Chat and the actual content is automatically fetched, extracted, and stored as a searchable memory
 - **YouTube Video Summarization** — YouTube links are enriched with the actual video transcript (via captions), summarized by an LLM, and stored with title, channel, summary, and source URL for full searchability
 - **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
@@ -167,20 +168,20 @@ When a question is detected, the bot presents **inline keyboard buttons** to cho
 
 ---
 
-## ☁️ Google Drive, Gmail & Calendar
+## ☁️ Google Drive, Gmail, Calendar & Photos
 
-Sync files from Google Drive, emails from Gmail, and events from Google Calendar directly into your Open Brain.
+Sync files from Google Drive, emails from Gmail, events from Google Calendar, and photos from Google Photos directly into your Open Brain.
 
 ### Setup
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a project (or use an existing one)
-3. Enable the **Google Drive API**, **Gmail API**, and **Google Calendar API**
+3. Enable the **Google Drive API**, **Gmail API**, **Google Calendar API**, and **Photos Picker API**
 4. Go to **Credentials** → **Create Credentials** → **OAuth 2.0 Client ID**
    - Application type: **Web application**
    - Authorized redirect URI: `http://localhost:8000/api/google/callback`
 5. Download the JSON file and save it as `google_credentials.json` in the project root
-6. In the dashboard, go to **Settings → Google Drive, Gmail & Calendar** and click **Add Account**
+6. In the dashboard, go to **Settings → Google Drive, Gmail, Calendar & Photos** and click **Add Account**
 7. Authorize in the browser — you'll be redirected back automatically
 8. Add your Google email(s) as **test users** in the OAuth consent screen (required for external apps)
 
@@ -205,6 +206,27 @@ Features:
 - **"In Brain" indicators** — Already-ingested events clearly marked in all views
 - **Startup scan prompt** — First scan covers 12 months; subsequent scans cover the current month
 - **Selective ingestion** — Pick individual events or select all new
+
+### Google Photos
+
+Ingest photos from Google Photos using the **Picker API** (the new post-March 2025 approach — `photoslibrary.readonly` scope is deprecated).
+
+**How it works:**
+1. Click **Pick Photos** in the Photos tab — this opens Google's native photo picker in a new browser tab
+2. Use Google's built-in search (e.g., "Paris 2024", "Dogs") and select the photos you want
+3. Close the picker when done — Open Brain automatically detects completion via polling
+4. Review the selected photos (with thumbnails, metadata, and sync status)
+5. Select which photos to ingest — each photo is downloaded, described by the **vision model**, and stored as a searchable memory
+
+**Features:**
+- **Favorites filter** — Optionally restrict the picker to show only favorited photos
+- **Vision model descriptions** — Each photo is analyzed by the configured vision model to generate a rich text description
+- **Metadata preserved** — Camera make/model, resolution, creation date stored alongside the description
+- **Thumbnail previews** — Selected photos shown with thumbnails in the review list
+- **Already-synced indicators** — Photos previously ingested are clearly marked
+- **Live ingestion progress** — Per-photo progress bar with success/failure status during ingestion
+
+**Note:** The `baseUrl` provided by Google Photos is temporary (~60 minutes). Photos are downloaded immediately during ingestion. Google Photos IDs are stored in the account data as read-only references — all custom metadata and tags live in Open Brain's own database.
 
 ---
 

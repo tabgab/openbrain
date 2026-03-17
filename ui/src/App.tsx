@@ -7,7 +7,7 @@ import {
   Terminal, ArrowRight, Save, RefreshCw, ListTree, Bot,
   Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles,
   Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw,
-  Cloud, Mail, Link, Phone, CalendarDays, ChevronLeft, ChevronRight, List, Grid3X3, MapPin, Clock, Repeat, Mic
+  Cloud, Mail, Link, Phone, CalendarDays, ChevronLeft, ChevronRight, List, Grid3X3, MapPin, Clock, Repeat, Mic, ImageIcon
 } from 'lucide-react';
 
 const API = 'http://localhost:8000/api';
@@ -1312,7 +1312,7 @@ function GoogleIntegrationSection() {
   const [accounts, setAccounts] = useState<GoogleAccount[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'drive' | 'gmail' | 'calendar'>('drive');
+  const [activeTab, setActiveTab] = useState<'drive' | 'gmail' | 'calendar' | 'photos'>('drive');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [showSetup, setShowSetup] = useState(false);
 
@@ -1355,6 +1355,15 @@ function GoogleIntegrationSection() {
   const [calExpandedEvent, setCalExpandedEvent] = useState<CalEvent | null>(null);
   const [calCalendars, setCalCalendars] = useState<CalInfo[]>([]);
   const [calEnabledCals, setCalEnabledCals] = useState<Set<string>>(new Set());
+
+  // Photos state
+  interface PhotoItem { id: string; baseUrl: string; mimeType: string; filename: string; width: string; height: string; creationTime: string; cameraMake: string; cameraModel: string; already_synced: boolean; }
+  const [photosPolling, setPhotosPolling] = useState(false);
+  const [photosItems, setPhotosItems] = useState<PhotoItem[]>([]);
+  const [photosSelected, setPhotosSelected] = useState<Set<string>>(new Set());
+  const [photosIngesting, setPhotosIngesting] = useState(false);
+  const [photosIngestProgress, setPhotosIngestProgress] = useState<{ current: number; total: number; results: { id: string; ok: boolean; filename: string }[] } | null>(null);
+  const [photosFavoritesOnly, setPhotosFavoritesOnly] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -1517,6 +1526,75 @@ function GoogleIntegrationSection() {
     finally { setCalIngesting(false); }
   };
 
+  // Photos functions
+  const openPhotosPicker = async () => {
+    if (!activeAccount) return;
+    setMsg(null); setPhotosItems([]); setPhotosSelected(new Set()); setPhotosIngestProgress(null);
+    try {
+      const res = await axios.post(`${API}/google/photos/create-session`, {
+        email: activeAccount, media_type: 'PHOTO', favorites_only: photosFavoritesOnly,
+      });
+      const sid = res.data.session_id;
+      const pickerUri = res.data.picker_uri;
+      // Open the picker in a new tab
+      if (pickerUri) window.open(pickerUri, '_blank');
+      // Start polling
+      setPhotosPolling(true);
+      const poll = setInterval(async () => {
+        try {
+          const p = await axios.get(`${API}/google/photos/poll-session`, { params: { email: activeAccount, session_id: sid } });
+          if (p.data.media_items_set) {
+            clearInterval(poll);
+            setPhotosPolling(false);
+            // Fetch selected items
+            const items = await axios.get(`${API}/google/photos/media-items`, { params: { email: activeAccount, session_id: sid } });
+            setPhotosItems(items.data.items || []);
+            if (items.data.items?.length === 0) setMsg({ ok: true, text: 'No photos selected in the picker.' });
+          }
+        } catch {
+          clearInterval(poll);
+          setPhotosPolling(false);
+          setMsg({ ok: false, text: 'Failed to poll Photos Picker session.' });
+        }
+      }, 3000);
+      // Timeout after 5 minutes
+      setTimeout(() => { clearInterval(poll); setPhotosPolling(false); }, 300000);
+    } catch (err: any) {
+      setMsg({ ok: false, text: err?.response?.data?.detail || 'Failed to create Photos Picker session' });
+    }
+  };
+
+  const togglePhoto = (id: string) => setPhotosSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const selectAllNewPhotos = () => setPhotosSelected(new Set(photosItems.filter(p => !p.already_synced).map(p => p.id)));
+
+  const ingestSelectedPhotos = async () => {
+    if (!activeAccount || photosSelected.size === 0) return;
+    setPhotosIngesting(true); setMsg(null);
+    const selectedItems = photosItems.filter(p => photosSelected.has(p.id));
+    const progress: { current: number; total: number; results: { id: string; ok: boolean; filename: string }[] } = { current: 0, total: selectedItems.length, results: [] };
+    setPhotosIngestProgress({ ...progress });
+
+    for (const item of selectedItems) {
+      progress.current++;
+      setPhotosIngestProgress({ ...progress, results: [...progress.results] });
+      try {
+        await axios.post(`${API}/google/photos/ingest`, { email: activeAccount, items: [item] });
+        progress.results.push({ id: item.id, ok: true, filename: item.filename });
+        setPhotosItems(prev => prev.map(p => p.id === item.id ? { ...p, already_synced: true } : p));
+      } catch {
+        progress.results.push({ id: item.id, ok: false, filename: item.filename });
+      }
+      setPhotosIngestProgress({ ...progress, results: [...progress.results] });
+    }
+
+    const ok = progress.results.filter(r => r.ok).length;
+    const fail = progress.results.filter(r => !r.ok).length;
+    setMsg({ ok: fail === 0, text: `Ingested ${ok} of ${selectedItems.length} photos${fail > 0 ? ` (${fail} failed)` : ''}` });
+    setPhotosSelected(new Set());
+    setPhotosIngesting(false);
+    setTimeout(() => setPhotosIngestProgress(null), 4000);
+  };
+
   const toggleCal = (id: string) => setCalSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const selectAllNewCal = () => setCalSelected(new Set(calEvents.filter(e => !e.already_synced).map(e => e.id)));
 
@@ -1643,7 +1721,7 @@ function GoogleIntegrationSection() {
           <strong>Google OAuth Setup Guide:</strong>
           <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.6 }}>
             <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Cloud Console</a> and create a project (or select an existing one)</li>
-            <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Library</strong>, search for and enable <strong>Google Drive API</strong>, <strong>Gmail API</strong>, and <strong>Google Calendar API</strong></li>
+            <li>Go to <strong>APIs & Services</strong> &rarr; <strong>Library</strong>, search for and enable <strong>Google Drive API</strong>, <strong>Gmail API</strong>, <strong>Google Calendar API</strong>, and <strong>Photos Picker API</strong></li>
             <li>
               Go to <strong>Google Auth Platform</strong> (or <strong>APIs & Services</strong> &rarr; <strong>OAuth consent screen</strong>), then in the left sidebar:
               <ul style={{ margin: '0.3rem 0 0.3rem 1rem', lineHeight: 1.5 }}>
@@ -1709,13 +1787,14 @@ function GoogleIntegrationSection() {
       {activeAccount && (
         <>
           <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '0.75rem' }}>
-            {(['drive', 'gmail', 'calendar'] as const).map(t => (
+            {(['drive', 'gmail', 'calendar', 'photos'] as const).map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
                 style={{ padding: '0.3rem 0.8rem', borderRadius: '6px', fontSize: '0.82rem', border: 'none', cursor: 'pointer',
                   background: activeTab === t ? 'rgba(59,130,246,0.2)' : 'transparent', color: activeTab === t ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: activeTab === t ? 600 : 400 }}>
                 {t === 'drive' && <><Cloud size={13} /> Drive</>}
                 {t === 'gmail' && <><Mail size={13} /> Gmail</>}
                 {t === 'calendar' && <><CalendarDays size={13} /> Calendar</>}
+                {t === 'photos' && <><ImageIcon size={13} /> Photos</>}
               </button>
             ))}
           </div>
@@ -2158,6 +2237,94 @@ function GoogleIntegrationSection() {
                     </button>
                   </div>
                 </>
+              )}
+            </div>
+          )}
+
+          {/* PHOTOS TAB */}
+          {activeTab === 'photos' && (
+            <div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                <button className="btn" onClick={openPhotosPicker} disabled={photosPolling} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
+                  {photosPolling ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
+                  {photosPolling ? ' Waiting for selection...' : ' Pick Photos'}
+                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.82rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                  <input type="checkbox" checked={photosFavoritesOnly} onChange={e => setPhotosFavoritesOnly(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
+                  Favorites only
+                </label>
+                {photosPolling && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    Select photos in the Google picker window, then close it when done.
+                  </span>
+                )}
+              </div>
+
+              {photosItems.length > 0 && (
+                <div style={{ maxHeight: '350px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    <button onClick={selectAllNewPhotos} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all new</button>
+                    <span style={{ marginLeft: 'auto' }}>{photosSelected.size} selected</span>
+                  </div>
+                  {photosItems.map(p => (
+                    <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: p.already_synced ? 0.5 : 1 }}>
+                      <input type="checkbox" checked={photosSelected.has(p.id)} onChange={() => togglePhoto(p.id)} disabled={p.already_synced} style={{ accentColor: 'var(--accent)' }} />
+                      {p.baseUrl && (
+                        <img src={`${p.baseUrl}=w48-h48-c`} alt="" style={{ width: 36, height: 36, borderRadius: '4px', objectFit: 'cover', flexShrink: 0 }} />
+                      )}
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{p.filename}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                          {p.width && p.height ? `${p.width}×${p.height}` : ''}{p.cameraMake || p.cameraModel ? ` · ${[p.cameraMake, p.cameraModel].filter(Boolean).join(' ')}` : ''}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {p.creationTime ? new Date(p.creationTime).toLocaleDateString() : ''}
+                      </span>
+                      {p.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {photosItems.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', flexWrap: 'wrap', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button className="btn" onClick={ingestSelectedPhotos} disabled={photosIngesting || photosSelected.size === 0} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem', opacity: photosSelected.size === 0 ? 0.5 : 1 }}>
+                    {photosIngesting ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
+                    {photosSelected.size > 0
+                      ? ` Ingest ${photosSelected.size} photo${photosSelected.size !== 1 ? 's' : ''}`
+                      : ' Select photos to ingest'}
+                  </button>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Photos are described by the vision model and stored as memories.</span>
+                </div>
+              )}
+
+              {/* Live ingestion progress */}
+              {photosIngestProgress && (
+                <div style={{ padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)', background: 'rgba(59,130,246,0.05)', marginTop: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600 }}>
+                    {photosIngesting ? <Loader2 size={14} className="animate-spin" color="var(--accent)" /> : <CheckCircle2 size={14} color="var(--success)" />}
+                    <span>{photosIngesting ? `Ingesting ${photosIngestProgress.current} of ${photosIngestProgress.total}...` : `Done — ${photosIngestProgress.results.filter(r => r.ok).length} of ${photosIngestProgress.total} ingested`}</span>
+                  </div>
+                  <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginBottom: '0.5rem', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', borderRadius: '2px', background: 'var(--accent)', transition: 'width 0.3s ease', width: `${(photosIngestProgress.results.length / photosIngestProgress.total) * 100}%` }} />
+                  </div>
+                  <div style={{ maxHeight: '150px', overflowY: 'auto', fontSize: '0.78rem' }}>
+                    {photosIngestProgress.results.map((r, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.15rem 0', color: r.ok ? 'var(--text-secondary)' : 'var(--error)' }}>
+                        {r.ok ? <CheckCircle2 size={11} color="var(--success)" /> : <AlertCircle size={11} color="var(--error)" />}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.filename}</span>
+                      </div>
+                    ))}
+                    {photosIngesting && photosIngestProgress.results.length < photosIngestProgress.current && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.15rem 0', color: 'var(--accent)' }}>
+                        <Loader2 size={11} className="animate-spin" />
+                        <span>Processing with vision model...</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}

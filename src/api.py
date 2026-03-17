@@ -1057,6 +1057,61 @@ def google_calendar_ingest(payload: dict):
         add_event("success", "google", f"Calendar: {len(result.get('ingested', []))} events ingested from {email}")
     return result
 
+# --- Google Photos (Picker API) ---
+
+@app.post("/api/google/photos/create-session")
+def google_photos_create_session(payload: dict):
+    """Create a Google Photos Picker session for the user to select photos."""
+    email = payload.get("email", "")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
+    media_type = payload.get("media_type", "PHOTO")
+    favorites_only = payload.get("favorites_only", False)
+    from google_integration import create_photos_session
+    result = create_photos_session(email, media_type=media_type, favorites_only=favorites_only)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    add_event("info", "google", f"Photos Picker session created for {email}")
+    return result
+
+@app.get("/api/google/photos/poll-session")
+def google_photos_poll_session(email: str, session_id: str):
+    """Poll a Photos Picker session to check if user finished selecting."""
+    if not email or not session_id:
+        raise HTTPException(status_code=400, detail="Email and session_id are required.")
+    from google_integration import poll_photos_session
+    result = poll_photos_session(email, session_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.get("/api/google/photos/media-items")
+def google_photos_media_items(email: str, session_id: str):
+    """List media items the user selected in the Picker."""
+    if not email or not session_id:
+        raise HTTPException(status_code=400, detail="Email and session_id are required.")
+    from google_integration import list_photos_media_items
+    result = list_photos_media_items(email, session_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/api/google/photos/ingest")
+def google_photos_ingest(payload: dict):
+    """Download and ingest selected Google Photos via vision model."""
+    email = payload.get("email", "")
+    items = payload.get("items", [])
+    if not email or not items:
+        raise HTTPException(status_code=400, detail="Email and items are required.")
+    from google_integration import ingest_photos
+    add_event("info", "google", f"Ingesting {len(items)} photos from Google Photos ({email})...")
+    result = ingest_photos(email, items)
+    if "error" in result:
+        add_event("error", "google", f"Photos ingest failed: {result['error']}")
+    else:
+        add_event("success", "google", f"Photos: {len(result.get('ingested', []))} photos ingested from {email}")
+    return result
+
 # --- WhatsApp Import ---
 
 class WhatsAppImport(BaseModel):
