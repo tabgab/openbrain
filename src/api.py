@@ -169,9 +169,13 @@ def get_db_stats():
         if dim_row:
             embedding_dim = dim_row[0]
 
-        # Secrets count
-        cur.execute("SELECT COUNT(*) FROM vault.secrets")
-        secrets_count = cur.fetchone()[0]
+        # Secrets count (vault may not exist)
+        secrets_count = 0
+        try:
+            cur.execute("SELECT COUNT(*) FROM vault.secrets")
+            secrets_count = cur.fetchone()[0]
+        except Exception:
+            conn.rollback()
 
         cur.close()
         conn.close()
