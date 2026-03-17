@@ -11,7 +11,7 @@ from llm import categorize_and_extract, get_embedding, get_client
 from scrubber import scrub_text
 from ingest import ingest_document
 from url_extract import enrich_text_with_urls, detect_urls
-from transcribe import transcribe_audio
+from transcribe import transcribe_audio, is_whisper_model_downloaded, STT_PROVIDER
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip("'\"")
 AUTHORIZED_CHAT_ID = os.getenv("TELEGRAM_AUTHORIZED_CHAT_ID", "").strip("'\"")
@@ -180,7 +180,14 @@ def handle_voice(chat_id, message):
         ext = ".wav"
 
     post_log("info", f"Received voice/audio ({duration}s, {mime}) from chat_id={chat_id}")
-    send_message(chat_id, f"🎤 Transcribing voice message ({duration}s)...")
+
+    # Warn user if local Whisper model needs to be downloaded first
+    if STT_PROVIDER == "local" and not is_whisper_model_downloaded():
+        model_size = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
+        send_message(chat_id, f"🎤 Transcribing voice message ({duration}s)...\n\n⏳ First-time setup: downloading Whisper '{model_size}' model. This may take a few minutes — subsequent transcriptions will be fast.")
+        post_log("info", f"Local Whisper model '{model_size}' not cached, will download on first use")
+    else:
+        send_message(chat_id, f"🎤 Transcribing voice message ({duration}s)...")
 
     try:
         file_bytes, resolved_name = download_telegram_file(file_id)

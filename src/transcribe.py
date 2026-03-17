@@ -11,6 +11,8 @@ import os
 import io
 import tempfile
 import subprocess
+import warnings
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +21,54 @@ STT_PROVIDER = os.getenv("STT_PROVIDER", "openai").strip("'\"").lower()
 
 # Formats accepted natively by OpenAI Whisper API
 _OPENAI_FORMATS = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"}
+
+# Cache for loaded local whisper model (avoid reloading on every call)
+_local_model_cache: dict = {}
+
+
+def _get_device() -> str:
+    """Detect best available device: cuda > mps > cpu. Works on Linux, macOS, Windows."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+    except ImportError:
+        pass
+    return "cpu"
+
+
+def is_whisper_model_downloaded(model_size: str = "") -> bool:
+    """Check if a local Whisper model has already been downloaded."""
+    if not model_size:
+        model_size = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
+    whisper_dir = Path.home() / ".cache" / "whisper"
+    # Whisper model files are named like "base.pt", "small.pt", etc.
+    return (whisper_dir / f"{model_size}.pt").exists()
+
+
+def download_whisper_model(model_size: str = "") -> dict:
+    """Pre-download a local Whisper model so it's ready for first use. Returns status dict."""
+    if not model_size:
+        model_size = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
+
+    if is_whisper_model_downloaded(model_size):
+        return {"success": True, "message": f"Model '{model_size}' is already downloaded.", "already_cached": True}
+
+    try:
+        import whisper
+    except ImportError:
+        return {"success": False, "message": "openai-whisper is not installed. Install it first."}
+
+    try:
+        device = _get_device()
+        # This triggers the download
+        whisper.load_model(model_size, device=device)
+        _local_model_cache.clear()  # Clear cache so next transcribe picks up fresh
+        return {"success": True, "message": f"Model '{model_size}' downloaded successfully.", "already_cached": False}
+    except Exception as e:
+        return {"success": False, "message": f"Failed to download model '{model_size}': {e}"}
 
 
 def transcribe_audio(file_bytes: bytes, filename: str = "audio.ogg") -> dict:
@@ -112,12 +162,23 @@ def _transcribe_openai(file_bytes: bytes, filename: str) -> dict:
 
 
 def _transcribe_local(file_bytes: bytes, filename: str) -> dict:
-    """Transcribe using local openai-whisper model."""
+    """Transcribe using local openai-whisper model.
+    Detects GPU (CUDA/MPS) and uses it if available; uses fp16=False on CPU
+    to avoid the 'FP16 is not supported on CPU' warning.
+    Caches the loaded model to avoid reloading on every call.
+    """
     try:
         import whisper
     except ImportError:
         return {"text": "", "language": "", "provider": "local",
                 "error": "Local Whisper not installed. Run: pip install openai-whisper"}
+
+    model_size = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
+    device = _get_device()
+    use_fp16 = device in ("cuda",)  # fp16 only on CUDA; False for cpu and mps
+
+    # Check if model needs downloading (warn caller this may take a while)
+    needs_download = not is_whisper_model_downloaded(model_size)
 
     # Write to temp file (whisper needs a file path)
     ext = os.path.splitext(filename)[1] or ".ogg"
@@ -126,13 +187,27 @@ def _transcribe_local(file_bytes: bytes, filename: str) -> dict:
         tmp_path = tmp.name
 
     try:
-        model_size = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
-        model = whisper.load_model(model_size)
-        result = model.transcribe(tmp_path)
+        # Load model (cached across calls)
+        cache_key = f"{model_size}_{device}"
+        if cache_key not in _local_model_cache:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                _local_model_cache[cache_key] = whisper.load_model(model_size, device=device)
+        model = _local_model_cache[cache_key]
+
+        result = model.transcribe(tmp_path, fp16=use_fp16)
+        text = result.get("text", "")
+        language = result.get("language", "unknown")
+
+        # If model was just downloaded, note it in the response
+        extra = ""
+        if needs_download:
+            extra = " (model was downloaded on first use)"
+
         return {
-            "text": result.get("text", ""),
-            "language": result.get("language", "unknown"),
-            "provider": "local",
+            "text": text,
+            "language": language,
+            "provider": f"local ({model_size}, {device}){extra}",
             "error": None,
         }
     finally:

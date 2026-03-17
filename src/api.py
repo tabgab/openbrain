@@ -638,6 +638,63 @@ def update_config(config: ConfigUpdate):
         import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- Backend Restart ---
+
+@app.post("/api/restart")
+def restart_backend():
+    """Restart Telegram bot and MCP server so they pick up new .env settings.
+    The API server itself stays running (it reloads .env on each request).
+    """
+    import subprocess, signal
+    restarted = []
+    errors = []
+
+    project_dir = os.path.dirname(os.path.dirname(__file__))
+    venv_python = os.path.join(project_dir, "venv", "bin", "python")
+    if not os.path.exists(venv_python):
+        venv_python = "python"  # fallback
+
+    # 1. Restart Telegram bot
+    try:
+        # Kill existing
+        subprocess.run(["pkill", "-f", "python.*telegram_bot.py"], capture_output=True, timeout=5)
+        import time; time.sleep(0.5)
+        # Start new
+        subprocess.Popen(
+            [venv_python, "src/telegram_bot.py"],
+            cwd=project_dir,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        restarted.append("telegram_bot")
+    except Exception as e:
+        errors.append(f"telegram_bot: {e}")
+
+    # 2. Restart MCP server
+    try:
+        subprocess.run(["pkill", "-f", "python.*server.py"], capture_output=True, timeout=5)
+        import time; time.sleep(0.5)
+        env = os.environ.copy()
+        env["MCP_TRANSPORT"] = "sse"
+        subprocess.Popen(
+            [venv_python, "src/server.py"],
+            cwd=project_dir, env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        restarted.append("mcp_server")
+    except Exception as e:
+        errors.append(f"mcp_server: {e}")
+
+    # 3. Reload .env in current process
+    load_dotenv(override=True)
+
+    msg = f"Restarted: {', '.join(restarted)}" if restarted else "No services restarted"
+    if errors:
+        msg += f". Errors: {'; '.join(errors)}"
+    add_event("success" if not errors else "warning", "restart", msg)
+    return {"success": len(errors) == 0, "restarted": restarted, "errors": errors}
+
 # --- Speech-to-Text Utilities ---
 
 @app.get("/api/stt/status")
@@ -686,6 +743,26 @@ def install_whisper():
             raise HTTPException(status_code=500, detail=f"Install failed: {proc.stderr[:500]}")
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Installation timed out (5 min). Try manually: pip install openai-whisper")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/stt/download-model")
+def download_model(model_size: str = ""):
+    """Pre-download a local Whisper model so it's ready for first use."""
+    try:
+        from transcribe import download_whisper_model
+        if not model_size:
+            model_size = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
+        add_event("info", "stt", f"Downloading Whisper model '{model_size}'...")
+        result = download_whisper_model(model_size)
+        if result["success"]:
+            add_event("success", "stt", result["message"])
+            return result
+        else:
+            add_event("error", "stt", result["message"])
+            raise HTTPException(status_code=500, detail=result["message"])
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

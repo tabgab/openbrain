@@ -46,6 +46,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  const settingsDirtyRef = useRef(false);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
   // Once user explicitly dismisses/saves wizard, never auto-reopen via polling
@@ -90,11 +91,18 @@ export default function App() {
   const saveConfig = async (partial?: Partial<Config>) => {
     setSaving(true); setSaveMsg('');
     try {
-      // Only send the fields the user explicitly set — never send masked values from config state
       const payload = partial || {};
       await axios.post(`${API}/config`, payload);
-      setSaveMsg('✅ Saved! Restart the backend for changes to take effect.');
+      settingsDirtyRef.current = false;
+      setSaveMsg('✅ Saved! Restarting backend...');
       closeWizard();
+      // Auto-restart backend services
+      try {
+        await axios.post(`${API}/restart`);
+        setSaveMsg('✅ Saved & backend restarted successfully.');
+      } catch {
+        setSaveMsg('✅ Saved! Backend restart failed — you may need to restart manually.');
+      }
       fetchAll();
     } catch (err: any) {
       const detail = err?.response?.data?.detail || err?.message || 'Unknown error';
@@ -102,6 +110,20 @@ export default function App() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const trySetTab = (newTab: Tab) => {
+    if (tab === 'settings' && newTab !== 'settings' && settingsDirtyRef.current) {
+      const action = window.confirm('You have unsaved settings changes.\n\nPress OK to save and switch, or Cancel to discard and switch.');
+      if (action) {
+        // Save then switch
+        saveConfig().then(() => setTab(newTab));
+        return;
+      }
+      // Discard
+      settingsDirtyRef.current = false;
+    }
+    setTab(newTab);
   };
 
   if (loading) return (
@@ -127,7 +149,7 @@ export default function App() {
           {(['dashboard', 'chat', 'ingest', 'settings', 'logs'] as Tab[]).map(t => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => trySetTab(t)}
               className={`btn ${tab === t ? '' : 'btn-secondary'}`}
               style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', textTransform: 'capitalize' }}
             >
@@ -150,7 +172,7 @@ export default function App() {
           {tab === 'dashboard' && <DashboardTab memories={memories} health={health} onOpenWizard={() => setShowWizard(true)} onRefresh={fetchAll} />}
           {tab === 'chat' && <ChatTab onMemoryAdded={fetchAll} />}
           {tab === 'ingest' && <IngestTab onRefresh={fetchAll} />}
-          {tab === 'settings' && <SettingsTab config={config} setConfig={setConfig} onSave={saveConfig} saving={saving} saveMsg={saveMsg} />}
+          {tab === 'settings' && <SettingsTab config={config} setConfig={setConfig} onSave={saveConfig} saving={saving} saveMsg={saveMsg} onDirtyChange={(d: boolean) => { settingsDirtyRef.current = d; }} />}
           {tab === 'logs' && <LogsTab logs={logs} onRefresh={fetchAll} />}
         </motion.div>
       </AnimatePresence>
@@ -717,7 +739,7 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
 }
 
 // --- Settings Tab ---
-function SettingsTab({ config, onSave, saving, saveMsg }: any) {
+function SettingsTab({ config, onSave, saving, saveMsg, onDirtyChange }: any) {
   // Initialize with empty strings for secrets, real values for non-secrets
   const [edits, setEdits] = React.useState<Partial<Config>>({
     llmBaseUrl: config.llmBaseUrl,
@@ -745,8 +767,11 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
   // Track which fields are visible (for secrets)
   const [visible, setVisible] = React.useState<Record<string, boolean>>({});
 
-  const set = (k: keyof Config) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const markDirty = () => { if (onDirtyChange) onDirtyChange(true); };
+  const set = (k: keyof Config) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setEdits(prev => ({ ...prev, [k]: e.target.value }));
+    markDirty();
+  };
 
   const toggleVisibility = (k: string) => () =>
     setVisible(prev => ({ ...prev, [k]: !prev[k] }));
@@ -877,7 +902,7 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
             ] as [string, string, string][]).map(([value, label, desc]) => (
               <button
                 key={value}
-                onClick={() => setEdits(prev => ({ ...prev, sttProvider: value }))}
+                onClick={() => { setEdits(prev => ({ ...prev, sttProvider: value })); markDirty(); }}
                 style={{
                   flex: '1 1 0', minWidth: '160px', padding: '0.75rem', borderRadius: '8px', cursor: 'pointer',
                   border: `1.5px solid ${edits.sttProvider === value ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
@@ -945,7 +970,7 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
                 {['tiny', 'base', 'small', 'medium', 'large'].map(size => (
                   <button
                     key={size}
-                    onClick={() => setEdits(prev => ({ ...prev, whisperModelSize: size }))}
+                    onClick={() => { setEdits(prev => ({ ...prev, whisperModelSize: size })); markDirty(); }}
                     style={{
                       padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer',
                       border: `1px solid ${edits.whisperModelSize === size ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
@@ -980,12 +1005,36 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
                 {installing === 'whisper' ? <><Loader2 size={14} className="animate-spin" /> Installing (may take a few minutes)...</> : '📦 Install Local Whisper'}
               </button>
             ) : sttStatus?.whisper_installed ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--success)', fontSize: '0.85rem' }}>
-                <CheckCircle2 size={16} /> Local Whisper installed
-                {sttStatus.whisper_models?.length > 0 && (
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                    (cached models: {sttStatus.whisper_models.join(', ')})
-                  </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--success)', fontSize: '0.85rem' }}>
+                  <CheckCircle2 size={16} /> Local Whisper installed
+                  {sttStatus.whisper_models?.length > 0 && (
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                      (cached models: {sttStatus.whisper_models.join(', ')})
+                    </span>
+                  )}
+                </div>
+                {/* Pre-download model button */}
+                {!sttStatus.whisper_models?.includes(edits.whisperModelSize || 'base') && (
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.82rem', alignSelf: 'flex-start' }}
+                    disabled={installing === 'download'}
+                    onClick={async () => {
+                      setInstalling('download');
+                      try {
+                        const r = await axios.post(`${API}/stt/download-model?model_size=${edits.whisperModelSize || 'base'}`);
+                        setSttStatus((prev: any) => ({
+                          ...prev,
+                          whisper_models: [...(prev?.whisper_models || []), edits.whisperModelSize || 'base'],
+                        }));
+                        alert(r.data.message);
+                      } catch (e: any) { alert('Download failed: ' + (e?.response?.data?.detail || e.message)); }
+                      finally { setInstalling(''); }
+                    }}
+                  >
+                    {installing === 'download' ? <><Loader2 size={14} className="animate-spin" /> Downloading '{edits.whisperModelSize}' model...</> : `⬇️ Download '${edits.whisperModelSize}' model now`}
+                  </button>
                 )}
               </div>
             ) : (
@@ -1047,15 +1096,22 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
         </div>
       </Section>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+      <BackupRestoreSection />
+
+      {/* Sticky save bar — always visible at bottom */}
+      <div style={{
+        position: 'sticky', bottom: 0, zIndex: 10,
+        padding: '0.75rem 1.25rem', marginTop: '1.5rem',
+        background: 'rgba(20, 20, 30, 0.95)', backdropFilter: 'blur(12px)',
+        borderTop: '1px solid var(--glass-border)', borderRadius: '12px 12px 0 0',
+        display: 'flex', alignItems: 'center', gap: '1rem',
+      }}>
         <button className="btn" onClick={handleSave} disabled={saving}>
           {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
           Save Changes
         </button>
         {saveMsg && <span style={{ fontSize: '0.9rem', color: saveMsg.startsWith('✅') ? 'var(--success)' : 'var(--error)' }}>{saveMsg}</span>}
       </div>
-
-      <BackupRestoreSection />
     </div>
   );
 }
