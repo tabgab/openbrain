@@ -107,7 +107,7 @@ def _search_calendar(queries: list[str], time_min: str = "", time_max: str = "",
                      email: str = "") -> list[dict]:
     """Search calendar with multiple queries and merge results."""
     try:
-        from google_integration import get_all_accounts, scan_calendar_events
+        from google_svc import get_all_accounts, scan_calendar_events
     except ImportError:
         return []
 
@@ -144,7 +144,7 @@ def _search_gmail(queries: list[str], newer_than: str = "365d",
                   email: str = "") -> list[dict]:
     """Search Gmail with multiple queries and merge results."""
     try:
-        from google_integration import get_all_accounts, search_gmail
+        from google_svc import get_all_accounts, search_gmail
     except ImportError:
         return []
 

@@ -286,7 +286,7 @@ def search_gmail(query: str, account_email: str = "", label: str = "", newer_tha
     Use newer_than for time range (e.g. '7d', '30d', '1y').
     If account_email is empty, uses the first connected account.
     """
-    from google_integration import get_all_accounts, search_gmail as _search
+    from google_svc import get_all_accounts, search_gmail as _search
 
     accounts = get_all_accounts()
     if not accounts:
@@ -315,7 +315,7 @@ def read_gmail(message_id: str, account_email: str = "") -> str:
     Returns sender, recipient, subject, date, and body text.
     If account_email is empty, uses the first connected account.
     """
-    from google_integration import get_all_accounts, preview_gmail_message
+    from google_svc import get_all_accounts, preview_gmail_message
 
     accounts = get_all_accounts()
     if not accounts:
@@ -343,7 +343,7 @@ def ingest_gmail(message_ids: List[str], account_email: str = "", include_images
     Set include_images=True to run vision OCR on image attachments.
     If account_email is empty, uses the first connected account.
     """
-    from google_integration import get_all_accounts, ingest_gmail_messages
+    from google_svc import get_all_accounts, ingest_gmail_messages
 
     accounts = get_all_accounts()
     if not accounts:
@@ -371,7 +371,7 @@ def search_calendar(query: str = "", account_email: str = "", time_min: str = ""
     Recurring events are deduplicated and shown once with recurrence info.
     If account_email is empty, uses the first connected account.
     """
-    from google_integration import get_all_accounts, scan_calendar_events
+    from google_svc import get_all_accounts, scan_calendar_events
 
     accounts = get_all_accounts()
     if not accounts:
@@ -406,7 +406,8 @@ def read_calendar_event(event_id: str, account_email: str = "") -> str:
     Returns time, location, attendees, description, and recurrence info.
     If account_email is empty, uses the first connected account.
     """
-    from google_integration import get_all_accounts, get_credentials_for, _fetch_event, _parse_event_datetime
+    from google_svc import get_all_accounts, get_credentials_for
+    from google_svc.calendar import _fetch_event, _parse_event_datetime
     from googleapiclient.discovery import build
 
     accounts = get_all_accounts()
@@ -453,7 +454,7 @@ def ingest_calendar_events(event_ids: List[str], account_email: str = "") -> str
     Events are saved as searchable memories with metadata.
     If account_email is empty, uses the first connected account.
     """
-    from google_integration import get_all_accounts, ingest_calendar_events as _ingest
+    from google_svc import get_all_accounts, ingest_calendar_events as _ingest
 
     accounts = get_all_accounts()
     if not accounts:
@@ -475,7 +476,7 @@ def list_google_accounts() -> str:
     Lists all connected Google accounts with their email addresses.
     Useful to know which account_email to use with Gmail and Calendar tools.
     """
-    from google_integration import get_all_accounts
+    from google_svc import get_all_accounts
     accounts = get_all_accounts()
     if not accounts:
         return "No Google accounts connected. Connect one via the dashboard."
