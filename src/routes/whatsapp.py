@@ -1,7 +1,7 @@
 """WhatsApp chat import endpoint."""
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
-from api import add_event
+from event_log import add_event
 
 router = APIRouter()
 

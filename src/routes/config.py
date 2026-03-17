@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from dotenv import set_key, load_dotenv
 
-from api import add_event
+from event_log import add_event
 
 router = APIRouter()
 
@@ -12,7 +12,7 @@ router = APIRouter()
 @router.get("/api/logs")
 def get_logs():
     """Returns the in-memory system event log."""
-    from api import event_log
+    from event_log import event_log
     return {"logs": list(reversed(event_log))}
 
 

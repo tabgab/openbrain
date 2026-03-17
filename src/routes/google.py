@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 
-from api import add_event
+from event_log import add_event
 
 router = APIRouter()
 

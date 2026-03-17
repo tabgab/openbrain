@@ -3,7 +3,7 @@ import os
 from fastapi import APIRouter, HTTPException
 from dotenv import load_dotenv
 
-from api import add_event
+from event_log import add_event
 
 router = APIRouter()
 
