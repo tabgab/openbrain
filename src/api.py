@@ -50,6 +50,11 @@ class ConfigUpdate(BaseModel):
     modelCoding: str = ""
     modelVision: str = ""
     modelEmbedding: str = ""
+    # Speech-to-text
+    sttProvider: str = ""
+    openaiApiKey: str = ""
+    groqApiKey: str = ""
+    whisperModelSize: str = ""
 
 @app.get("/api/health")
 def get_health():
@@ -586,6 +591,11 @@ def get_config():
         "modelCoding": os.getenv("MODEL_CODING", "minimax/minimax-m2.5"),
         "modelVision": os.getenv("MODEL_VISION", "moonshotai/kimi-k2.5"),
         "modelEmbedding": os.getenv("MODEL_EMBEDDING", "openai/text-embedding-3-small"),
+        # Speech-to-text
+        "sttProvider": os.getenv("STT_PROVIDER", "openai"),
+        "openaiApiKey": mask(os.getenv("OPENAI_API_KEY", "")),
+        "groqApiKey": mask(os.getenv("GROQ_API_KEY", "")),
+        "whisperModelSize": os.getenv("WHISPER_MODEL_SIZE", "base"),
     }
 
 @app.post("/api/config")
@@ -609,6 +619,10 @@ def update_config(config: ConfigUpdate):
             "MODEL_CODING": config.modelCoding,
             "MODEL_VISION": config.modelVision,
             "MODEL_EMBEDDING": config.modelEmbedding,
+            "STT_PROVIDER": config.sttProvider,
+            "OPENAI_API_KEY": config.openaiApiKey,
+            "GROQ_API_KEY": config.groqApiKey,
+            "WHISPER_MODEL_SIZE": config.whisperModelSize,
         }
         saved = []
         for key, value in fields.items():
@@ -622,6 +636,75 @@ def update_config(config: ConfigUpdate):
     except Exception as e:
         print(f"[Config] ERROR saving: {e}", flush=True)
         import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Speech-to-Text Utilities ---
+
+@app.get("/api/stt/status")
+def stt_status():
+    """Check STT provider status and local Whisper installation."""
+    load_dotenv(override=True)
+    provider = os.getenv("STT_PROVIDER", "openai").strip("'\"")
+    result = {"provider": provider, "whisper_installed": False, "whisper_models": []}
+
+    # Check if local whisper is installed
+    try:
+        import whisper
+        result["whisper_installed"] = True
+        # Check which models are downloaded
+        import pathlib
+        whisper_dir = pathlib.Path.home() / ".cache" / "whisper"
+        if whisper_dir.exists():
+            result["whisper_models"] = [f.stem.replace(".pt", "") for f in whisper_dir.glob("*.pt")]
+    except ImportError:
+        pass
+
+    # Check if groq is installed
+    try:
+        import groq
+        result["groq_installed"] = True
+    except ImportError:
+        result["groq_installed"] = False
+
+    return result
+
+@app.post("/api/stt/install-whisper")
+def install_whisper():
+    """Install openai-whisper package for local transcription."""
+    import subprocess
+    try:
+        add_event("info", "stt", "Installing openai-whisper (this may take a minute)...")
+        proc = subprocess.run(
+            ["pip", "install", "openai-whisper"],
+            capture_output=True, text=True, timeout=300,
+        )
+        if proc.returncode == 0:
+            add_event("success", "stt", "openai-whisper installed successfully")
+            return {"success": True, "message": "openai-whisper installed successfully. You can now use STT_PROVIDER=local."}
+        else:
+            add_event("error", "stt", f"whisper install failed: {proc.stderr[:200]}")
+            raise HTTPException(status_code=500, detail=f"Install failed: {proc.stderr[:500]}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Installation timed out (5 min). Try manually: pip install openai-whisper")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/stt/install-groq")
+def install_groq():
+    """Install groq SDK for Groq Whisper API."""
+    import subprocess
+    try:
+        add_event("info", "stt", "Installing groq SDK...")
+        proc = subprocess.run(
+            ["pip", "install", "groq"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if proc.returncode == 0:
+            add_event("success", "stt", "groq SDK installed successfully")
+            return {"success": True, "message": "groq SDK installed. Set GROQ_API_KEY and STT_PROVIDER=groq."}
+        else:
+            raise HTTPException(status_code=500, detail=f"Install failed: {proc.stderr[:500]}")
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Backup & Restore ---

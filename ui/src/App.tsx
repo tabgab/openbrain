@@ -7,7 +7,7 @@ import {
   Terminal, ArrowRight, Save, RefreshCw, ListTree, Bot,
   Search, Pencil, Trash2, X, Check, Upload, FileText, Eye, Code, Cpu, Sparkles,
   Send, BookmarkPlus, HelpCircle, Download, Shield, RotateCcw,
-  Cloud, Mail, Link, Phone, CalendarDays, ChevronLeft, ChevronRight, List, Grid3X3, MapPin, Clock, Repeat
+  Cloud, Mail, Link, Phone, CalendarDays, ChevronLeft, ChevronRight, List, Grid3X3, MapPin, Clock, Repeat, Mic
 } from 'lucide-react';
 
 const API = 'http://localhost:8000/api';
@@ -24,6 +24,7 @@ interface Config {
   dbUser: string; dbName: string; dbHost: string; llmBaseUrl: string;
   modelText: string; modelReasoning: string; modelCoding: string;
   modelVision: string; modelEmbedding: string;
+  sttProvider: string; openaiApiKey: string; groqApiKey: string; whisperModelSize: string;
 }
 
 type Tab = 'dashboard' | 'chat' | 'ingest' | 'settings' | 'logs';
@@ -33,6 +34,7 @@ const EMPTY_CONFIG: Config = {
   dbUser: '', dbName: '', dbHost: '', llmBaseUrl: '',
   modelText: '', modelReasoning: '', modelCoding: '',
   modelVision: '', modelEmbedding: '',
+  sttProvider: 'openai', openaiApiKey: '', groqApiKey: '', whisperModelSize: 'base',
 };
 
 export default function App() {
@@ -727,11 +729,18 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
     modelCoding: config.modelCoding,
     modelVision: config.modelVision,
     modelEmbedding: config.modelEmbedding,
+    // STT
+    sttProvider: config.sttProvider || 'openai',
+    whisperModelSize: config.whisperModelSize || 'base',
     // Secrets start empty - user must type/paste them
     telegramToken: '',
     llmApiKey: '',
     dbPassword: '',
+    openaiApiKey: '',
+    groqApiKey: '',
   });
+  const [sttStatus, setSttStatus] = React.useState<any>(null);
+  const [installing, setInstalling] = React.useState('');
 
   // Track which fields are visible (for secrets)
   const [visible, setVisible] = React.useState<Record<string, boolean>>({});
@@ -745,7 +754,7 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
   const handleSave = () => {
     const toSave: Partial<Config> = { ...edits };
     // Remove empty secret values - backend keeps existing when empty
-    (['telegramToken', 'llmApiKey', 'dbPassword'] as (keyof Config)[]).forEach(k => {
+    (['telegramToken', 'llmApiKey', 'dbPassword', 'openaiApiKey', 'groqApiKey'] as (keyof Config)[]).forEach(k => {
       if (!edits[k]?.trim()) {
         delete toSave[k];
       }
@@ -850,6 +859,167 @@ function SettingsTab({ config, onSave, saving, saveMsg }: any) {
             </div>
           ))}
         </div>
+      </Section>
+
+      <Section title="Voice Transcription (STT)" icon={<Mic size={20} color="var(--accent)" />}>
+        <p style={{ marginBottom: '1.25rem', fontSize: '0.9rem' }}>
+          Choose how voice messages from Telegram are transcribed. Each provider auto-detects the spoken language.
+        </p>
+
+        {/* Provider selector */}
+        <div className="input-group" style={{ marginBottom: '1.25rem' }}>
+          <label>STT Provider</label>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {([
+              ['openai', '☁️ OpenAI Whisper API', 'Fast, accurate. Requires OPENAI_API_KEY (direct OpenAI, not OpenRouter).'],
+              ['groq', '⚡ Groq', 'Very fast, free tier. Requires GROQ_API_KEY.'],
+              ['local', '🖥️ Local Whisper', 'Fully private, runs on-device. Requires openai-whisper package + ffmpeg.'],
+            ] as [string, string, string][]).map(([value, label, desc]) => (
+              <button
+                key={value}
+                onClick={() => setEdits(prev => ({ ...prev, sttProvider: value }))}
+                style={{
+                  flex: '1 1 0', minWidth: '160px', padding: '0.75rem', borderRadius: '8px', cursor: 'pointer',
+                  border: `1.5px solid ${edits.sttProvider === value ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
+                  background: edits.sttProvider === value ? 'rgba(59,130,246,0.12)' : 'transparent',
+                  textAlign: 'left', transition: 'all 0.15s',
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: '0.88rem', color: edits.sttProvider === value ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{label}</div>
+                <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Provider-specific settings */}
+        {edits.sttProvider === 'openai' && (
+          <div style={{ padding: '1rem', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(59,130,246,0.05)' }}>
+            <SecretInput
+              field="openaiApiKey"
+              label="OpenAI API Key (leave blank to keep existing)"
+              placeholder="sk-... (direct OpenAI key, NOT OpenRouter)"
+            />
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.5rem 0 0' }}>
+              Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>platform.openai.com/api-keys</a>. This is separate from your OpenRouter key.
+            </p>
+          </div>
+        )}
+
+        {edits.sttProvider === 'groq' && (
+          <div style={{ padding: '1rem', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(59,130,246,0.05)' }}>
+            <SecretInput
+              field="groqApiKey"
+              label="Groq API Key (leave blank to keep existing)"
+              placeholder="gsk_..."
+            />
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.5rem 0 0' }}>
+              Free tier available at <a href="https://console.groq.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>console.groq.com</a>. Uses Whisper large-v3-turbo.
+            </p>
+            {sttStatus && !sttStatus.groq_installed && (
+              <button
+                className="btn btn-secondary"
+                style={{ marginTop: '0.75rem', fontSize: '0.82rem' }}
+                disabled={installing === 'groq'}
+                onClick={async () => {
+                  setInstalling('groq');
+                  try {
+                    const r = await axios.post(`${API}/stt/install-groq`);
+                    setSttStatus((prev: any) => ({ ...prev, groq_installed: true }));
+                    alert(r.data.message);
+                  } catch (e: any) { alert('Install failed: ' + (e?.response?.data?.detail || e.message)); }
+                  finally { setInstalling(''); }
+                }}
+              >
+                {installing === 'groq' ? <><Loader2 size={14} className="animate-spin" /> Installing...</> : '📦 Install Groq SDK'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {edits.sttProvider === 'local' && (
+          <div style={{ padding: '1rem', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(59,130,246,0.05)' }}>
+            <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+              <label>Model Size</label>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                {['tiny', 'base', 'small', 'medium', 'large'].map(size => (
+                  <button
+                    key={size}
+                    onClick={() => setEdits(prev => ({ ...prev, whisperModelSize: size }))}
+                    style={{
+                      padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer',
+                      border: `1px solid ${edits.whisperModelSize === size ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
+                      background: edits.whisperModelSize === size ? 'rgba(59,130,246,0.15)' : 'transparent',
+                      color: edits.whisperModelSize === size ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+              <p style={{ fontSize: '0.73rem', color: 'var(--text-secondary)', margin: '0.4rem 0 0' }}>
+                tiny (~39MB, fastest) → large (~2.9GB, most accurate). Recommended: <strong>base</strong> for balanced speed/quality.
+              </p>
+            </div>
+
+            {sttStatus && !sttStatus.whisper_installed ? (
+              <button
+                className="btn"
+                style={{ fontSize: '0.82rem' }}
+                disabled={installing === 'whisper'}
+                onClick={async () => {
+                  setInstalling('whisper');
+                  try {
+                    const r = await axios.post(`${API}/stt/install-whisper`);
+                    setSttStatus((prev: any) => ({ ...prev, whisper_installed: true }));
+                    alert(r.data.message);
+                  } catch (e: any) { alert('Install failed: ' + (e?.response?.data?.detail || e.message)); }
+                  finally { setInstalling(''); }
+                }}
+              >
+                {installing === 'whisper' ? <><Loader2 size={14} className="animate-spin" /> Installing (may take a few minutes)...</> : '📦 Install Local Whisper'}
+              </button>
+            ) : sttStatus?.whisper_installed ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--success)', fontSize: '0.85rem' }}>
+                <CheckCircle2 size={16} /> Local Whisper installed
+                {sttStatus.whisper_models?.length > 0 && (
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                    (cached models: {sttStatus.whisper_models.join(', ')})
+                  </span>
+                )}
+              </div>
+            ) : (
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: '0.82rem' }}
+                onClick={async () => {
+                  try { const r = await axios.get(`${API}/stt/status`); setSttStatus(r.data); }
+                  catch { setSttStatus({ whisper_installed: false, whisper_models: [], groq_installed: false }); }
+                }}
+              >
+                <RefreshCw size={14} /> Check Installation Status
+              </button>
+            )}
+
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.75rem 0 0' }}>
+              Requires <code>ffmpeg</code> installed on your system. The first transcription will download the selected model.
+            </p>
+          </div>
+        )}
+
+        {/* Fetch status on mount if not already loaded */}
+        {!sttStatus && (
+          <button
+            className="btn btn-secondary"
+            style={{ marginTop: '0.75rem', fontSize: '0.82rem' }}
+            onClick={async () => {
+              try { const r = await axios.get(`${API}/stt/status`); setSttStatus(r.data); }
+              catch { setSttStatus({ whisper_installed: false, whisper_models: [], groq_installed: false }); }
+            }}
+          >
+            <RefreshCw size={14} /> Check STT Status
+          </button>
+        )}
       </Section>
 
       <Section title="Database" icon={<Database size={20} color="var(--accent)" />}>
