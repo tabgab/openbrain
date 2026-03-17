@@ -1412,7 +1412,7 @@ function IngestTab({ onRefresh }: { onRefresh: () => void }) {
   );
 }
 
-// --- Google Drive, Gmail & Calendar (multi-account, search/filter/preview/ingest) ---
+// --- Google Drive, Gmail, Calendar & Photos (multi-account, search/filter/preview/ingest) ---
 interface GoogleAccount { email: string; connected: boolean; connected_at?: string; drive_last_sync?: string; gmail_last_sync?: string; }
 interface DriveFile { id: string; name: string; mimeType: string; modifiedTime: string; size: string; already_synced: boolean; }
 interface GmailMsg { id: string; from: string; subject: string; date: string; snippet: string; already_synced: boolean; }
@@ -1821,7 +1821,7 @@ function GoogleIntegrationSection() {
     <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
         <Cloud size={20} color="var(--accent)" />
-        <h2 style={{ margin: 0, flex: 1 }}>Google Drive, Gmail & Calendar</h2>
+        <h2 style={{ margin: 0, flex: 1 }}>Google Drive, Gmail, Calendar & Photos</h2>
         <button className="btn" onClick={connect} disabled={connecting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem' }}>
           {connecting ? <Loader2 size={13} className="animate-spin" /> : <Link size={13} />}
           {connecting ? 'Authorizing...' : 'Add Account'}

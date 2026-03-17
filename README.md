@@ -215,15 +215,13 @@ Ingest photos from Google Photos using the **Picker API** (the new post-March 20
 1. Click **Pick Photos** in the Photos tab — this opens Google's native photo picker in a new browser tab
 2. Use Google's built-in search (e.g., "Paris 2024", "Dogs") and select the photos you want
 3. Close the picker when done — Open Brain automatically detects completion via polling
-4. Review the selected photos (with thumbnails, metadata, and sync status)
+4. Review the selected photos (with metadata and sync status)
 5. Select which photos to ingest — each photo is downloaded, described by the **vision model**, and stored as a searchable memory
 
 **Features:**
-- **Favorites filter** — Optionally restrict the picker to show only favorited photos
 - **Vision model descriptions** — Each photo is analyzed by the configured vision model to generate a rich text description
 - **Metadata preserved** — Camera make/model, resolution, creation date stored alongside the description
-- **Thumbnail previews** — Selected photos shown with thumbnails in the review list
-- **Already-synced indicators** — Photos previously ingested are clearly marked
+- **Already-synced indicators** — Photos previously ingested are clearly marked (but can be force re-added)
 - **Live ingestion progress** — Per-photo progress bar with success/failure status during ingestion
 
 **Note:** The `baseUrl` provided by Google Photos is temporary (~60 minutes). Photos are downloaded immediately during ingestion. Google Photos IDs are stored in the account data as read-only references — all custom metadata and tags live in Open Brain's own database.
@@ -339,9 +337,10 @@ The SSE server runs on `http://localhost:3100/sse` when started with `./start-op
 
 Access at **http://localhost:5173** after starting services.
 
-- **Dashboard** — Browse memories, edit/delete, upload documents
+- **Dashboard** — Browse memories with click-to-expand full content, edit/delete, semantic search, upload documents. Click the Database indicator to see live metrics (total memories, DB size, storage breakdown, source/category stats, timeline)
+- **Ingest** — Upload documents, connect Google accounts (Drive, Gmail, Calendar, Photos), import WhatsApp chats. Already-synced items can be force re-added with a confirmation prompt
 - **Chat** — Conversational interface with streaming answers, live thinking process, and search mode toggle (Memory Only / Advanced Search)
-- **Settings** — Configure model roles, API keys, database, Telegram token, voice transcription (STT provider, local Whisper model download, GPU detection), backup & restore, Google Drive/Gmail/Calendar, WhatsApp import
+- **Settings** — Configure model roles, API keys, database, Telegram token, voice transcription (STT provider, local Whisper model download, GPU detection), backup & restore
 - **Logs** — Real-time system event log from all services
 
 ---
@@ -374,7 +373,7 @@ openbrain/
 │   ├── llm.py              # Multi-model LLM client (roles, embeddings, vision)
 │   ├── ingest.py           # Document ingestion (PDF, images, Word, Excel)
 │   ├── backup.py           # Encrypted backup & restore (AES-256-GCM)
-│   ├── google_integration.py # Google Drive, Gmail & Calendar OAuth + sync
+│   ├── google_integration.py # Google Drive, Gmail, Calendar & Photos OAuth + sync
 │   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
 │   ├── smart_search.py     # Augmented search (Calendar + Gmail + query expansion)
 │   ├── url_extract.py      # URL content extraction (X/Twitter, YouTube transcripts + summary, general web)
