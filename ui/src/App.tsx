@@ -697,16 +697,16 @@ function ChatTab({ onMemoryAdded }: { onMemoryAdded: () => void }) {
             <div style={{ fontSize: '0.75rem', color: modeColor, alignSelf: 'center', minWidth: '40px', textAlign: 'center', fontWeight: 600 }}>
               {modeLabel}
             </div>
-            <input
-              ref={inputRef}
-              type="text"
+            <textarea
+              ref={inputRef as any}
               className="input-field"
               placeholder={mode === 'question' ? 'Ask a question...' : mode === 'memory' ? 'Type a memory to store...' : 'Ask a question or store a memory...'}
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && send()}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
               disabled={sending}
-              style={{ flex: 1, margin: 0 }}
+              rows={1}
+              style={{ flex: 1, margin: 0, resize: 'none', minHeight: '38px', maxHeight: '150px', overflow: 'auto' }}
               autoFocus
             />
             <button className="btn" onClick={send} disabled={sending || !input.trim()} style={{ padding: '0.5rem 1rem' }}>
