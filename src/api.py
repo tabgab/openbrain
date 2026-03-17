@@ -124,6 +124,73 @@ def get_health():
         "telegram": {"ok": telegram_ok, "error": telegram_error, "bot_name": telegram_bot_name},
     }
 
+@app.get("/api/db/stats")
+def get_db_stats():
+    """Returns database metrics: memory count, DB size, source breakdown, etc."""
+    try:
+        from db import get_connection
+        conn = get_connection()
+        cur = conn.cursor()
+
+        # Total memories
+        cur.execute("SELECT COUNT(*) FROM memories")
+        total_memories = cur.fetchone()[0]
+
+        # Source type breakdown
+        cur.execute("SELECT source_type, COUNT(*) FROM memories GROUP BY source_type ORDER BY COUNT(*) DESC")
+        source_breakdown = {row[0]: row[1] for row in cur.fetchall()}
+
+        # Category breakdown from metadata
+        cur.execute("SELECT metadata->>'category', COUNT(*) FROM memories WHERE metadata->>'category' IS NOT NULL GROUP BY metadata->>'category' ORDER BY COUNT(*) DESC")
+        category_breakdown = {row[0]: row[1] for row in cur.fetchall()}
+
+        # Oldest & newest memory
+        cur.execute("SELECT MIN(created_at), MAX(created_at) FROM memories")
+        row = cur.fetchone()
+        oldest = row[0].isoformat() if row[0] else None
+        newest = row[1].isoformat() if row[1] else None
+
+        # Database size
+        cur.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
+        db_size = cur.fetchone()[0]
+
+        # memories table size (data + indexes)
+        cur.execute("SELECT pg_size_pretty(pg_total_relation_size('memories'))")
+        table_size = cur.fetchone()[0]
+
+        # Index size
+        cur.execute("SELECT pg_size_pretty(pg_indexes_size('memories'))")
+        index_size = cur.fetchone()[0]
+
+        # Embedding dimension (from first row)
+        embedding_dim = None
+        cur.execute("SELECT vector_dims(embedding) FROM memories LIMIT 1")
+        dim_row = cur.fetchone()
+        if dim_row:
+            embedding_dim = dim_row[0]
+
+        # Secrets count
+        cur.execute("SELECT COUNT(*) FROM vault.secrets")
+        secrets_count = cur.fetchone()[0]
+
+        cur.close()
+        conn.close()
+
+        return {
+            "total_memories": total_memories,
+            "source_breakdown": source_breakdown,
+            "category_breakdown": category_breakdown,
+            "oldest_memory": oldest,
+            "newest_memory": newest,
+            "db_size": db_size,
+            "table_size": table_size,
+            "index_size": index_size,
+            "embedding_dim": embedding_dim,
+            "secrets_count": secrets_count,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/events")
 def get_recent_events():
     """Returns the last 10 memories saved to the DB."""
