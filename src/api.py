@@ -1065,10 +1065,8 @@ def google_photos_create_session(payload: dict):
     email = payload.get("email", "")
     if not email:
         raise HTTPException(status_code=400, detail="Email is required.")
-    media_type = payload.get("media_type", "PHOTO")
-    favorites_only = payload.get("favorites_only", False)
     from google_integration import create_photos_session
-    result = create_photos_session(email, media_type=media_type, favorites_only=favorites_only)
+    result = create_photos_session(email)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     add_event("info", "google", f"Photos Picker session created for {email}")

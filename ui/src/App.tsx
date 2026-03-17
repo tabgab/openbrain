@@ -1363,7 +1363,6 @@ function GoogleIntegrationSection() {
   const [photosSelected, setPhotosSelected] = useState<Set<string>>(new Set());
   const [photosIngesting, setPhotosIngesting] = useState(false);
   const [photosIngestProgress, setPhotosIngestProgress] = useState<{ current: number; total: number; results: { id: string; ok: boolean; filename: string }[] } | null>(null);
-  const [photosFavoritesOnly, setPhotosFavoritesOnly] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -1544,7 +1543,7 @@ function GoogleIntegrationSection() {
     const win = window.open('about:blank', '_blank');
     try {
       const res = await axios.post(`${API}/google/photos/create-session`, {
-        email: activeAccount, media_type: 'PHOTO', favorites_only: photosFavoritesOnly,
+        email: activeAccount,
       });
       const sid = res.data.session_id;
       const pickerUri = res.data.picker_uri;
@@ -2268,10 +2267,6 @@ function GoogleIntegrationSection() {
                   {photosPolling ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
                   {photosPolling ? ' Waiting for selection...' : ' Pick Photos'}
                 </button>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.82rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                  <input type="checkbox" checked={photosFavoritesOnly} onChange={e => setPhotosFavoritesOnly(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
-                  Favorites only
-                </label>
                 {photosPolling && (
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                     Select photos in the Google picker window, then close it when done.

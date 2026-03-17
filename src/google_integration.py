@@ -1005,27 +1005,22 @@ def _photos_headers(creds: Credentials) -> dict:
     return {"Authorization": f"Bearer {creds.token}", "Content-Type": "application/json"}
 
 
-def create_photos_session(email: str, media_type: str = "PHOTO",
-                          favorites_only: bool = False) -> dict:
+def create_photos_session(email: str, max_items: int = 100) -> dict:
     """Create a Google Photos Picker session. Returns the picker URI for the user to open.
 
+    The Picker API itself handles all filtering — the user searches and selects
+    photos in Google's native picker UI. The only config option is maxItemCount.
+
     Args:
-        media_type: 'PHOTO', 'VIDEO', or '' for all
-        favorites_only: if True, only show favorites
+        max_items: maximum number of items the user can pick (default 100, max 2000)
     """
     creds = get_credentials_for(email)
     if not creds:
         return {"error": f"Account {email} not connected or token expired."}
 
-    picker_filter: dict = {}
-    if media_type:
-        picker_filter["mediaTypeFilter"] = {"includedMediaTypes": [media_type]}
-    if favorites_only:
-        picker_filter["featureFilter"] = {"includedFeatures": ["FAVORITES"]}
-
-    body = {}
-    if picker_filter:
-        body["pickerFilter"] = picker_filter
+    body: dict = {}
+    if max_items and max_items > 0:
+        body["pickingConfig"] = {"maxItemCount": str(min(max_items, 2000))}
 
     try:
         resp = http_requests.post(
@@ -1036,19 +1031,30 @@ def create_photos_session(email: str, media_type: str = "PHOTO",
         )
         resp.raise_for_status()
         data = resp.json()
+        # Append /autoclose so the picker tab closes automatically when user is done
+        picker_uri = data.get("pickerUri", "")
+        if picker_uri:
+            picker_uri = picker_uri.rstrip("/") + "/autoclose"
         return {
             "session_id": data.get("id", ""),
-            "picker_uri": data.get("pickerUri", ""),
+            "picker_uri": picker_uri,
             "expire_time": data.get("expireTime", ""),
             "media_items_set": data.get("mediaItemsSet", False),
         }
     except http_requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 403:
-            return {"error": "Photos Picker API returned 403 Forbidden. "
-                    "Please: 1) Enable the 'Photos Picker API' in Google Cloud Console "
-                    "(APIs & Services → Library), and 2) Disconnect and re-add your Google "
-                    "account so the new Photos scope is authorized."}
-        return {"error": f"Photos Picker API error: {e}"}
+        detail = ""
+        if e.response is not None:
+            try:
+                detail = e.response.text
+            except Exception:
+                pass
+            if e.response.status_code == 403:
+                return {"error": "Photos Picker API returned 403 Forbidden. "
+                        "Please: 1) Enable the 'Photos Picker API' in Google Cloud Console "
+                        "(APIs & Services → Library), and 2) Disconnect and re-add your Google "
+                        "account so the new Photos scope is authorized."}
+        print(f"[Photos Picker] HTTP {e.response.status_code if e.response is not None else '?'}: {detail}", flush=True)
+        return {"error": f"Photos Picker API error: {e}" + (f" — {detail}" if detail else "")}
     except Exception as e:
         return {"error": f"Photos Picker API error: {e}"}
 
