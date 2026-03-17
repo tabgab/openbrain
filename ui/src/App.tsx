@@ -282,6 +282,7 @@ function DashboardTab({ memories, health, onOpenWizard, onRefresh }: { memories:
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const doSearch = async () => {
     if (!searchQuery.trim()) { setSearchResults(null); return; }
@@ -430,10 +431,17 @@ function DashboardTab({ memories, health, onOpenWizard, onRefresh }: { memories:
                 </div>
               </div>
             ) : (
-              <>
-                <p style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>{m.content.substring(0, 200)}{m.content.length > 200 ? '…' : ''}</p>
+              <div onClick={() => setExpandedId(expandedId === m.id ? null : m.id)} style={{ cursor: 'pointer' }}>
+                {expandedId === m.id ? (
+                  <p style={{ color: 'var(--text-primary)', marginBottom: '0.5rem', whiteSpace: 'pre-wrap', maxHeight: '60vh', overflowY: 'auto' }}>{m.content}</p>
+                ) : (
+                  <p style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>{m.content.substring(0, 200)}{m.content.length > 200 ? '…' : ''}</p>
+                )}
                 {m.metadata?.summary && <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Summary: {m.metadata.summary}</p>}
-              </>
+                {m.content.length > 200 && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--accent)', opacity: 0.8 }}>{expandedId === m.id ? 'Click to collapse' : 'Click to expand'}</span>
+                )}
+              </div>
             )}
           </div>
         ))}
@@ -1582,7 +1590,11 @@ function GoogleIntegrationSection() {
     }
   };
 
-  const togglePhoto = (id: string) => setPhotosSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const togglePhoto = (id: string) => {
+    const photo = photosItems.find(p => p.id === id);
+    if (photo?.already_synced && !photosSelected.has(id) && !window.confirm(`"${photo.filename}" was already ingested. Re-process it?`)) return;
+    setPhotosSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
   const selectAllNewPhotos = () => setPhotosSelected(new Set(photosItems.filter(p => !p.already_synced).map(p => p.id)));
 
   const ingestSelectedPhotos = async () => {
@@ -1613,7 +1625,11 @@ function GoogleIntegrationSection() {
     setTimeout(() => setPhotosIngestProgress(null), 4000);
   };
 
-  const toggleCal = (id: string) => setCalSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggleCal = (id: string) => {
+    const ev = calEvents.find(e => e.id === id);
+    if (ev?.already_synced && !calSelected.has(id) && !window.confirm(`"${ev.summary}" was already ingested. Re-process it?`)) return;
+    setCalSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
   const selectAllNewCal = () => setCalSelected(new Set(calEvents.filter(e => !e.already_synced).map(e => e.id)));
 
   const calendarFiltered = calEnabledCals.size > 0
@@ -1671,8 +1687,16 @@ function GoogleIntegrationSection() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts, activeAccount]);
 
-  const toggleDrive = (id: string) => setDriveSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const toggleGmail = (id: string) => setGmailSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggleDrive = (id: string) => {
+    const file = driveFiles.find(f => f.id === id);
+    if (file?.already_synced && !driveSelected.has(id) && !window.confirm(`"${file.name}" was already ingested. Re-process it?`)) return;
+    setDriveSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
+  const toggleGmail = (id: string) => {
+    const msg = gmailMsgs.find(m => m.id === id);
+    if (msg?.already_synced && !gmailSelected.has(id) && !window.confirm(`"${msg.subject || id}" was already ingested. Re-process it?`)) return;
+    setGmailSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
 
   const previewEmail = async (msgId: string) => {
     if (expandedEmail === msgId) { setExpandedEmail(null); setEmailPreview(null); return; }
@@ -1848,7 +1872,7 @@ function GoogleIntegrationSection() {
                   {driveFiles.map(f => (
                     <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
                       borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: f.already_synced ? 0.5 : 1 }}>
-                      <input type="checkbox" checked={driveSelected.has(f.id)} onChange={() => toggleDrive(f.id)} disabled={f.already_synced} style={{ accentColor: 'var(--accent)' }} />
+                      <input type="checkbox" checked={driveSelected.has(f.id)} onChange={() => toggleDrive(f.id)} style={{ accentColor: 'var(--accent)' }} />
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{f.modifiedTime?.slice(0, 10)}</span>
                       {f.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
@@ -1913,8 +1937,7 @@ function GoogleIntegrationSection() {
                   {gmailMsgs.map(m => (
                     <div key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: m.already_synced ? 0.5 : 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={gmailSelected.has(m.id)} onChange={() => toggleGmail(m.id)} disabled={m.already_synced}
-                          style={{ accentColor: 'var(--accent)' }} onClick={e => e.stopPropagation()} />
+                        <input type="checkbox" checked={gmailSelected.has(m.id)} onChange={() => toggleGmail(m.id)} style={{ accentColor: 'var(--accent)' }} onClick={e => e.stopPropagation()} />
                         <span onClick={() => previewEmail(m.id)} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}>
                           <strong style={{ fontSize: '0.8rem' }}>{m.from?.split('<')[0]?.trim()}</strong>{' '}
                           <span style={{ color: 'var(--text-secondary)' }}>{m.subject}</span>
@@ -2092,8 +2115,7 @@ function GoogleIntegrationSection() {
                         {filteredCalEvents.map(ev => (
                           <div key={ev.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.4rem 0.6rem', fontSize: '0.82rem',
                             borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: ev.already_synced ? 0.5 : 1 }}>
-                            <input type="checkbox" checked={calSelected.has(ev.id)} onChange={() => toggleCal(ev.id)} disabled={ev.already_synced}
-                              style={{ accentColor: 'var(--accent)', marginTop: '0.15rem', cursor: 'pointer' }} />
+                            <input type="checkbox" checked={calSelected.has(ev.id)} onChange={() => toggleCal(ev.id)} style={{ accentColor: 'var(--accent)', marginTop: '0.15rem', cursor: 'pointer' }} />
                             <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setCalExpandedEvent(calExpandedEvent?.id === ev.id ? null : ev)}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                                 <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
@@ -2283,10 +2305,10 @@ function GoogleIntegrationSection() {
                   {photosItems.map(p => (
                     <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', fontSize: '0.82rem', cursor: 'pointer',
                       borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: p.already_synced ? 0.5 : 1 }}>
-                      <input type="checkbox" checked={photosSelected.has(p.id)} onChange={() => togglePhoto(p.id)} disabled={p.already_synced} style={{ accentColor: 'var(--accent)' }} />
-                      {p.baseUrl && (
-                        <img src={`${p.baseUrl}=w48-h48-c`} alt="" style={{ width: 36, height: 36, borderRadius: '4px', objectFit: 'cover', flexShrink: 0 }} />
-                      )}
+                      <input type="checkbox" checked={photosSelected.has(p.id)} onChange={() => togglePhoto(p.id)} style={{ accentColor: 'var(--accent)' }} />
+                      <div style={{ width: 36, height: 36, borderRadius: '4px', background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <ImageIcon size={16} color="var(--text-secondary)" />
+                      </div>
                       <div style={{ flex: 1, overflow: 'hidden' }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{p.filename}</div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
