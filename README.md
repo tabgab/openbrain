@@ -12,7 +12,7 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Multi-Model AI** — Configurable LLM roles (text, reasoning, coding, vision, embedding) via OpenRouter, supporting 200+ models
 - **Document Ingestion** — Upload PDFs (including scanned), images, Word docs, Excel files — auto-OCR, categorize, and embed
 - **Telegram Bot** — Send text, photos, documents, or voice notes via Telegram to capture memories; ask questions naturally
-- **Voice Note Transcription** — Send a voice message via Telegram; it's auto-transcribed (language detected), then routed as a question or stored as a memory. Configurable STT provider: OpenAI Whisper API, local Whisper, or Groq
+- **Voice Note Transcription** — Send a voice message via Telegram; it's auto-transcribed (language detected), then routed as a question or stored as a memory. Configurable STT provider: OpenAI Whisper API, local Whisper (with automatic GPU detection for CUDA/MPS), or Groq. Pre-download models from Settings to avoid first-use delay
 - **Auto Question Detection** — The bot intelligently distinguishes questions from memories without needing prefixes
 - **MCP Server** — Full Model Context Protocol support (stdio + SSE) so other AI systems can use your brain as a tool
 - **PII Scrubbing** — Automatic detection and redaction of secrets, API keys, credit cards, SSNs
@@ -208,6 +208,39 @@ Features:
 
 ---
 
+## 🎤 Voice Transcription (STT)
+
+Open Brain transcribes voice notes sent via Telegram (and can be extended to other inputs). Language is auto-detected.
+
+### Providers
+
+| Provider | Config Value | Requirements | Notes |
+|----------|-------------|--------------|-------|
+| **OpenAI Whisper API** | `openai` (default) | `OPENAI_API_KEY` (direct OpenAI, not OpenRouter) | Fast, accurate, cloud-based |
+| **Local Whisper** | `local` | `pip install openai-whisper` + `ffmpeg` | Fully private, runs on-device |
+| **Groq Whisper** | `groq` | `GROQ_API_KEY` | Very fast, free tier available |
+
+Configure via `.env` or the **Settings → Voice Transcription** panel in the dashboard.
+
+### Local Whisper Details
+
+- **GPU Detection** — Automatically detects and uses CUDA (NVIDIA) or MPS (Apple Silicon), falls back to CPU
+- **FP16 Handling** — Uses FP16 on CUDA for speed, FP32 on CPU/MPS to avoid warnings
+- **Model Caching** — The loaded model is kept in memory across transcriptions
+- **Model Pre-Download** — Download the selected model from Settings before first use (avoids delay on first voice message)
+- **Model Sizes** — `tiny`, `base`, `small`, `medium`, `large` (configurable via `WHISPER_MODEL_SIZE`)
+
+### Environment Variables
+
+```env
+STT_PROVIDER=local          # openai | local | groq
+WHISPER_MODEL_SIZE=base     # tiny | base | small | medium | large
+OPENAI_API_KEY=sk-...       # Required for STT_PROVIDER=openai
+GROQ_API_KEY=gsk_...        # Required for STT_PROVIDER=groq
+```
+
+---
+
 ## 💬 WhatsApp Import
 
 Import WhatsApp chat history into your Open Brain:
@@ -286,7 +319,7 @@ Access at **http://localhost:5173** after starting services.
 
 - **Dashboard** — Browse memories, edit/delete, upload documents
 - **Chat** — Conversational interface with streaming answers, live thinking process, and search mode toggle (Memory Only / Advanced Search)
-- **Settings** — Configure model roles, API keys, database, Telegram token, backup & restore, Google Drive/Gmail/Calendar, WhatsApp import
+- **Settings** — Configure model roles, API keys, database, Telegram token, voice transcription (STT provider, local Whisper model download, GPU detection), backup & restore, Google Drive/Gmail/Calendar, WhatsApp import
 - **Logs** — Real-time system event log from all services
 
 ---
