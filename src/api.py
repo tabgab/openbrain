@@ -702,17 +702,25 @@ def stt_status():
     """Check STT provider status and local Whisper installation."""
     load_dotenv(override=True)
     provider = os.getenv("STT_PROVIDER", "openai").strip("'\"")
-    result = {"provider": provider, "whisper_installed": False, "whisper_models": []}
+    configured_model = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
+    result = {
+        "provider": provider,
+        "whisper_installed": False,
+        "whisper_models": [],
+        "configured_model": configured_model,
+        "model_ready": False,
+    }
 
     # Check if local whisper is installed
     try:
         import whisper
         result["whisper_installed"] = True
-        # Check which models are downloaded
-        import pathlib
-        whisper_dir = pathlib.Path.home() / ".cache" / "whisper"
-        if whisper_dir.exists():
-            result["whisper_models"] = [f.stem.replace(".pt", "") for f in whisper_dir.glob("*.pt")]
+        # Check which config model sizes have their files downloaded
+        # by resolving each size to its actual cache filename
+        from transcribe import is_whisper_model_downloaded
+        all_sizes = ["tiny", "base", "small", "medium", "large", "turbo"]
+        result["whisper_models"] = [s for s in all_sizes if is_whisper_model_downloaded(s)]
+        result["model_ready"] = configured_model in result["whisper_models"]
     except ImportError:
         pass
 

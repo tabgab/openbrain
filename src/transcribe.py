@@ -39,13 +39,29 @@ def _get_device() -> str:
     return "cpu"
 
 
+def _resolve_whisper_filename(model_size: str) -> str:
+    """Resolve the actual cache filename for a Whisper model size.
+    e.g. 'large' -> 'large-v3.pt', 'base' -> 'base.pt', 'turbo' -> 'large-v3-turbo.pt'
+    """
+    try:
+        import whisper
+        url = whisper._MODELS.get(model_size, "")
+        if url:
+            # URL ends with e.g. .../large-v3.pt — extract the filename
+            return url.split("/")[-1]
+    except (ImportError, AttributeError):
+        pass
+    # Fallback: assume model_size.pt
+    return f"{model_size}.pt"
+
+
 def is_whisper_model_downloaded(model_size: str = "") -> bool:
     """Check if a local Whisper model has already been downloaded."""
     if not model_size:
         model_size = os.getenv("WHISPER_MODEL_SIZE", "base").strip("'\"")
     whisper_dir = Path.home() / ".cache" / "whisper"
-    # Whisper model files are named like "base.pt", "small.pt", etc.
-    return (whisper_dir / f"{model_size}.pt").exists()
+    filename = _resolve_whisper_filename(model_size)
+    return (whisper_dir / filename).exists()
 
 
 def download_whisper_model(model_size: str = "") -> dict:
