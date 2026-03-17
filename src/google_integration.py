@@ -1042,6 +1042,13 @@ def create_photos_session(email: str, media_type: str = "PHOTO",
             "expire_time": data.get("expireTime", ""),
             "media_items_set": data.get("mediaItemsSet", False),
         }
+    except http_requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 403:
+            return {"error": "Photos Picker API returned 403 Forbidden. "
+                    "Please: 1) Enable the 'Photos Picker API' in Google Cloud Console "
+                    "(APIs & Services → Library), and 2) Disconnect and re-add your Google "
+                    "account so the new Photos scope is authorized."}
+        return {"error": f"Photos Picker API error: {e}"}
     except Exception as e:
         return {"error": f"Photos Picker API error: {e}"}
 
