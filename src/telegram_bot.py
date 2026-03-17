@@ -369,6 +369,13 @@ def handle_ask(chat_id, question, search_mode="advanced"):
             f"- [{r['source_type']} · {r['created_at']}] {r['content']}" for r in results
         ) if results else ""
 
+    # Resolve any [REDACTED] vault references in context
+    if context:
+        from routes.chat import _resolve_vault_references
+        context, n_vault = _resolve_vault_references(context)
+        if n_vault:
+            post_log("info", f"Resolved {n_vault} vault secret(s) for Telegram question")
+
     if not context:
         send_message(chat_id, "🤷 No relevant memories or data found in your Open Brain.")
         return

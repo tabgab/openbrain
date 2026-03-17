@@ -78,12 +78,12 @@ def chat_endpoint(payload: ChatMessage):
             ) if results else ""
             sources = [{"id": r["id"], "source_type": r["source_type"], "summary": (r.get("metadata") or {}).get("summary", r["content"][:80])} for r in results] if results else []
 
-        # Also search the secure vault for relevant secrets
-        vault_context = _search_vault_for_query(text)
-        if vault_context:
-            context = (context + "\n\n" + vault_context) if context else vault_context
-            sources.append({"id": "vault", "source_type": "secure_vault", "summary": "Secure vault entries"})
-            add_event("info", "chat", "Vault secrets included in context")
+        # Resolve any [REDACTED] vault references in the context
+        if context:
+            context, n_resolved = _resolve_vault_references(context)
+            if n_resolved:
+                sources.append({"id": "vault", "source_type": "secure_vault", "summary": f"{n_resolved} vault secret(s) resolved"})
+                add_event("info", "chat", f"Resolved {n_resolved} vault reference(s) in context")
 
         if not context:
             return {"type": "answer", "content": "No relevant memories or data found in your Open Brain.", "sources": []}
@@ -227,13 +227,13 @@ def chat_stream_endpoint(payload: ChatMessage):
                     result_holder["search_result"] = {"combined_context": ctx, "sources": srcs, "search_plan": {}}
                     result_holder["results"] = results
 
-                # Also search the secure vault
-                vault_ctx = _search_vault_for_query(text)
-                if vault_ctx:
-                    sr = result_holder["search_result"]
-                    sr["combined_context"] = (sr["combined_context"] + "\n\n" + vault_ctx) if sr["combined_context"] else vault_ctx
-                    sr["sources"].append({"id": "vault", "source_type": "secure_vault", "summary": "Secure vault entries"})
-                    on_step("Searched secure vault — found matching entries")
+                # Resolve any [REDACTED] vault references in context
+                sr = result_holder["search_result"]
+                if sr["combined_context"]:
+                    sr["combined_context"], n_vault = _resolve_vault_references(sr["combined_context"])
+                    if n_vault:
+                        sr["sources"].append({"id": "vault", "source_type": "secure_vault", "summary": f"{n_vault} vault secret(s) resolved"})
+                        on_step(f"Resolved {n_vault} vault secret(s) from secure vault")
 
                 step_q.put(("done", None))
 
@@ -315,31 +315,29 @@ def chat_stream_endpoint(payload: ChatMessage):
     return StreamingResponse(_generate_events(), media_type="text/event-stream")
 
 
-def _search_vault_for_query(text: str) -> str:
-    """Search the secure vault for secrets relevant to the user's question.
-    Returns formatted context string with vault entries, or empty string."""
+def _resolve_vault_references(context: str) -> tuple[str, int]:
+    """Find [REDACTED ...: Reference ID ...] markers in context and replace
+    them with the actual secret values from the vault.
+    Returns (resolved_context, count_of_resolved_secrets)."""
+    import re
+    pattern = r'\[REDACTED\s+\w+:\s*Reference ID\s+([\w\-]+)\]'
+    matches = re.findall(pattern, context)
+    if not matches:
+        return context, 0
+
+    resolved = 0
     try:
-        from db import search_vault, retrieve_secret
-        # Extract meaningful search keywords from the question
-        words = text.lower().split()
-        # Search with individual significant words and the full query
-        seen_keys = set()
-        matches = []
-        for term in [text] + [w for w in words if len(w) > 3]:
-            for entry in search_vault(term):
-                if entry["key"] not in seen_keys:
-                    seen_keys.add(entry["key"])
-                    # Retrieve the actual secret value
-                    secret = retrieve_secret(entry["key"])
-                    if secret:
-                        matches.append(
-                            f"- [VAULT: {entry['key']}] {entry['description'] or 'No description'}: {secret['value']}"
-                        )
-        if matches:
-            return "Secure Vault entries:\n" + "\n".join(matches)
+        from db import retrieve_secret
+        for vault_key in set(matches):
+            secret = retrieve_secret(vault_key)
+            if secret:
+                # Replace ALL occurrences of this reference with the actual value
+                marker_pattern = rf'\[REDACTED\s+\w+:\s*Reference ID\s+{re.escape(vault_key)}\]'
+                context = re.sub(marker_pattern, secret["value"], context)
+                resolved += 1
     except Exception:
         pass
-    return ""
+    return context, resolved
 
 
 def _detect_intent(text: str) -> str:
