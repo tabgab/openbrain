@@ -1337,6 +1337,7 @@ function GoogleIntegrationSection() {
   const [gmailSearching, setGmailSearching] = useState(false);
   const [gmailIngesting, setGmailIngesting] = useState(false);
   const [gmailIncludeImages, setGmailIncludeImages] = useState(false);
+  const [gmailIngestProgress, setGmailIngestProgress] = useState<{ current: number; total: number; results: { id: string; ok: boolean; subject: string }[] } | null>(null);
   const [expandedEmail, setExpandedEmail] = useState<string | null>(null);
   const [emailPreview, setEmailPreview] = useState<{ id: string; from: string; to: string; subject: string; date: string; body: string; html_body?: string; image_count?: number } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -1453,15 +1454,35 @@ function GoogleIntegrationSection() {
   const ingestGmailMsgs = async () => {
     if (!activeAccount || gmailSelected.size === 0) return;
     setGmailIngesting(true); setMsg(null);
-    try {
-      const res = await axios.post(`${API}/google/gmail/ingest`, { email: activeAccount, message_ids: Array.from(gmailSelected), include_images: gmailIncludeImages });
-      const n = res.data.ingested?.length || 0;
-      const e = res.data.errors?.length || 0;
-      setMsg({ ok: e === 0, text: `Ingested ${n} emails${e > 0 ? `, ${e} errors` : ''}` });
-      setGmailSelected(new Set());
-      searchGmail();
-    } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Ingest failed' }); }
-    finally { setGmailIngesting(false); }
+    const ids = Array.from(gmailSelected);
+    const progress: { current: number; total: number; results: { id: string; ok: boolean; subject: string }[] } = { current: 0, total: ids.length, results: [] };
+    setGmailIngestProgress({ ...progress });
+
+    for (const msgId of ids) {
+      progress.current++;
+      setGmailIngestProgress({ ...progress, results: [...progress.results] });
+      const emailInfo = gmailMsgs.find(m => m.id === msgId);
+      const subject = emailInfo?.subject || msgId.slice(0, 12);
+      try {
+        await axios.post(`${API}/google/gmail/ingest`, {
+          email: activeAccount, message_ids: [msgId], include_images: gmailIncludeImages,
+        });
+        progress.results.push({ id: msgId, ok: true, subject });
+        // Mark as synced in the list immediately
+        setGmailMsgs(prev => prev.map(m => m.id === msgId ? { ...m, already_synced: true } : m));
+      } catch {
+        progress.results.push({ id: msgId, ok: false, subject });
+      }
+      setGmailIngestProgress({ ...progress, results: [...progress.results] });
+    }
+
+    const ok = progress.results.filter(r => r.ok).length;
+    const fail = progress.results.filter(r => !r.ok).length;
+    setMsg({ ok: fail === 0, text: `Ingested ${ok} of ${ids.length} emails${fail > 0 ? ` (${fail} failed)` : ''}` });
+    setGmailSelected(new Set());
+    setGmailIngesting(false);
+    // Keep progress visible for a moment, then clear
+    setTimeout(() => setGmailIngestProgress(null), 4000);
   };
 
   // Calendar functions
@@ -1852,6 +1873,35 @@ function GoogleIntegrationSection() {
                       ? `Ingest ${gmailSelected.size} email${gmailSelected.size !== 1 ? 's' : ''}${gmailIncludeImages ? ' + images' : ''}`
                       : 'Select emails to ingest'}
                   </button>
+                </div>
+              )}
+              {/* Live ingestion progress */}
+              {gmailIngestProgress && (
+                <div style={{ padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)', background: 'rgba(59,130,246,0.05)', marginTop: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600 }}>
+                    {gmailIngesting ? <Loader2 size={14} className="animate-spin" color="var(--accent)" /> : <CheckCircle2 size={14} color="var(--success)" />}
+                    <span>{gmailIngesting ? `Ingesting ${gmailIngestProgress.current} of ${gmailIngestProgress.total}...` : `Done — ${gmailIngestProgress.results.filter(r => r.ok).length} of ${gmailIngestProgress.total} ingested`}</span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginBottom: '0.5rem', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', borderRadius: '2px', background: 'var(--accent)', transition: 'width 0.3s ease', width: `${(gmailIngestProgress.results.length / gmailIngestProgress.total) * 100}%` }} />
+                  </div>
+                  {/* Per-email results */}
+                  <div style={{ maxHeight: '150px', overflowY: 'auto', fontSize: '0.78rem' }}>
+                    {gmailIngestProgress.results.map((r, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.15rem 0', color: r.ok ? 'var(--text-secondary)' : 'var(--error)' }}>
+                        {r.ok ? <CheckCircle2 size={11} color="var(--success)" /> : <AlertCircle size={11} color="var(--error)" />}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.subject}</span>
+                      </div>
+                    ))}
+                    {/* Show which email is currently being processed */}
+                    {gmailIngesting && gmailIngestProgress.current <= gmailIngestProgress.total && gmailIngestProgress.results.length < gmailIngestProgress.current && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.15rem 0', color: 'var(--accent)' }}>
+                        <Loader2 size={11} className="animate-spin" />
+                        <span>Processing...</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
