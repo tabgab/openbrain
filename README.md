@@ -79,24 +79,56 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 
 ### Prerequisites
 
-- **Python 3.11+**
+- **Python 3.10+**
 - **Node.js 18+** and npm
 - **Docker** (for PostgreSQL + pgvector)
 - An **OpenRouter API key** (or OpenAI/Ollama)
-- A **Telegram Bot Token** (from [@BotFather](https://t.me/BotFather))
+- A **Telegram Bot Token** (optional, from [@BotFather](https://t.me/BotFather))
 
-### 1. Clone & Configure
+### Option A: Interactive Installer (Recommended)
+
+The easiest way to get started. The installer checks prerequisites, installs dependencies, starts the database, and walks you through configuration — all interactively.
 
 ```bash
 git clone https://github.com/tabgab/openbrain.git
 cd openbrain
 
-# Copy the example env and fill in your credentials
+# macOS / Linux
+./install.sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+The installer will:
+1. **Check & install prerequisites** — Python, Node.js, Docker (via Homebrew, apt/dnf/pacman, or winget)
+2. **Create a Python virtual environment** and install all packages from `requirements.txt`
+3. **Install frontend dependencies** (`npm install` in the `ui/` directory)
+4. **Start PostgreSQL + pgvector** via Docker Compose
+5. **Walk you through `.env` configuration** — API keys, model selection, Telegram token, database credentials, STT settings (all with sensible defaults)
+6. **Verify everything works** — checks imports, database connection, and UI dependencies
+
+After installation, just run:
+```bash
+./start-openbrain.sh          # macOS / Linux
+start-openbrain.bat            # Windows
+```
+
+### Option B: Manual Setup
+
+<details>
+<summary>Click to expand manual setup instructions</summary>
+
+#### 1. Clone & Configure
+
+```bash
+git clone https://github.com/tabgab/openbrain.git
+cd openbrain
 cp .env.example .env
 # Edit .env with your API keys, database password, and Telegram token
 ```
 
-### 2. Start the Database
+#### 2. Start the Database
 
 ```bash
 docker compose up -d
@@ -104,33 +136,29 @@ docker compose up -d
 
 This starts PostgreSQL with pgvector. The schema is auto-initialized from `init-scripts/schema.sql`.
 
-### 3. Set Up Python Environment
+#### 3. Set Up Python Environment
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate          # macOS / Linux
 # venv\Scripts\activate.bat       # Windows
-pip install fastapi uvicorn python-multipart requests openai psycopg2-binary \
-    python-dotenv pgvector numpy PyPDF2 python-docx openpyxl Pillow pymupdf mcp
+pip install -r requirements.txt
 ```
 
-### 4. Set Up Frontend
+#### 4. Set Up Frontend
 
 ```bash
-cd ui
-npm install
-cd ..
+cd ui && npm install && cd ..
 ```
 
-### 5. Start Everything
+#### 5. Start Everything
 
 ```bash
-# macOS / Linux
-./start-openbrain.sh
-
-# Windows
-start-openbrain.bat
+./start-openbrain.sh              # macOS / Linux
+start-openbrain.bat                # Windows
 ```
+
+</details>
 
 This starts all four services:
 
@@ -368,30 +396,52 @@ Configure in `.env` or via the Settings tab in the dashboard.
 ```
 openbrain/
 ├── src/
-│   ├── api.py              # FastAPI REST endpoints
+│   ├── api.py              # FastAPI app setup, CORS, and router registration
+│   ├── event_log.py        # Shared in-memory event log (used by api + routes)
+│   ├── routes/             # API route modules (one per domain)
+│   │   ├── health.py       #   Health check & database stats
+│   │   ├── memories.py     #   Memory CRUD & document ingestion
+│   │   ├── chat.py         #   Chat (sync + streaming SSE) with intent detection
+│   │   ├── config.py       #   Configuration, logs, backend restart
+│   │   ├── stt.py          #   Speech-to-text utilities
+│   │   ├── backup.py       #   Encrypted backup & restore
+│   │   ├── google.py       #   Google Drive, Gmail, Calendar, Photos endpoints
+│   │   └── whatsapp.py     #   WhatsApp chat import
+│   ├── google_svc/         # Google integration service layer
+│   │   ├── auth.py         #   OAuth 2.0, multi-account management
+│   │   ├── drive.py        #   Drive search & ingestion
+│   │   ├── gmail.py        #   Gmail labels, search, preview, ingestion
+│   │   ├── calendar.py     #   Calendar scanning, dedup, ingestion
+│   │   └── photos.py       #   Photos Picker API, download, ingestion
 │   ├── db.py               # PostgreSQL/pgvector database layer
 │   ├── llm.py              # Multi-model LLM client (roles, embeddings, vision)
 │   ├── ingest.py           # Document ingestion (PDF, images, Word, Excel)
-│   ├── backup.py           # Encrypted backup & restore (AES-256-GCM)
-│   ├── google_integration.py # Google Drive, Gmail, Calendar & Photos OAuth + sync
-│   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
+│   ├── backup.py           # Encrypted backup & restore logic (AES-256-GCM)
 │   ├── smart_search.py     # Augmented search (Calendar + Gmail + query expansion)
-│   ├── url_extract.py      # URL content extraction (X/Twitter, YouTube transcripts + summary, general web)
+│   ├── url_extract.py      # URL content extraction (X/Twitter, YouTube, web)
 │   ├── transcribe.py       # Speech-to-text (OpenAI Whisper, local Whisper, Groq)
-│   ├── scrubber.py         # PII detection and redaction
-│   ├── server.py           # MCP server (stdio + SSE)
-│   └── telegram_bot.py     # Telegram bot with auto question detection + search mode
+│   ├── scrubber.py         # PII detection and redaction → vault
+│   ├── whatsapp_import.py  # WhatsApp chat export parser & ingester
+│   ├── server.py           # MCP server (stdio + SSE, 18 tools)
+│   └── telegram_bot.py     # Telegram bot with auto question detection
+├── tests/                  # Test suite (pytest)
+│   ├── test_module_structure.py  # Package/module export verification
+│   ├── test_api_routes.py        # All API routes registered
+│   ├── test_file_sizes.py        # No file exceeds 400 lines
+│   └── test_google_svc_logic.py  # Helper function unit tests
 ├── ui/
 │   └── src/App.tsx         # React dashboard (settings, memories, logs)
 ├── init-scripts/
 │   └── schema.sql          # PostgreSQL schema (memories + vault tables)
 ├── docker-compose.yml      # PostgreSQL + pgvector container
+├── requirements.txt        # Python dependency manifest
 ├── .env.example            # Template for configuration
+├── install.sh              # Interactive installer (macOS / Linux)
+├── install.ps1             # Interactive installer (Windows PowerShell)
 ├── start-openbrain.sh      # Start all services (macOS/Linux)
 ├── stop-openbrain.sh       # Stop all services (macOS/Linux)
 ├── start-openbrain.bat     # Start all services (Windows)
-├── stop-openbrain.bat      # Stop all services (Windows)
-└── project_thesis.md       # Original project vision
+└── stop-openbrain.bat      # Stop all services (Windows)
 ```
 
 ---
@@ -477,7 +527,20 @@ python src/telegram_bot.py
 
 # Run MCP server (stdio mode for testing)
 python src/server.py
+
+# Run test suite
+python -m pytest tests/ -v
 ```
+
+### Architecture Notes
+
+The backend follows a modular architecture:
+
+- **`api.py`** is a thin entrypoint (~55 lines) — app setup, CORS, and `include_router()` calls
+- **`routes/`** package contains 8 domain-specific route modules, each with its own `APIRouter`
+- **`google_svc/`** package splits Google integrations into 5 focused modules (auth, drive, gmail, calendar, photos)
+- **`event_log.py`** is a shared module for the in-memory event log, avoiding circular imports between `api.py` and route modules
+- No source file exceeds 400 lines (enforced by tests)
 
 ---
 
