@@ -1155,23 +1155,30 @@ def ingest_photos(email: str, items: list[dict]) -> dict:
         mime = item.get("mimeType", "image/jpeg")
         creation_time = item.get("creationTime", "")
 
+        print(f"[Photos] Processing {filename} (id={mid[:12]}..., baseUrl={'YES' if base_url else 'EMPTY'})", flush=True)
+
         if not base_url:
+            print(f"[Photos] SKIP {filename}: no baseUrl. Item keys: {list(item.keys())}", flush=True)
             errors.append({"id": mid, "error": "No baseUrl"})
             continue
 
         try:
             # Download full-resolution image (=w0-h0 keeps original dimensions)
             download_url = f"{base_url}=w0-h0"
-            img_resp = http_requests.get(download_url, timeout=60)
+            print(f"[Photos] Downloading {filename} from {download_url[:80]}...", flush=True)
+            img_resp = http_requests.get(download_url, headers=_photos_headers(creds), timeout=60)
             img_resp.raise_for_status()
             img_bytes = img_resp.content
+            print(f"[Photos] Downloaded {filename}: {len(img_bytes)} bytes, status={img_resp.status_code}", flush=True)
 
             if len(img_bytes) == 0:
                 errors.append({"id": mid, "filename": filename, "error": "Empty image"})
                 continue
 
             # Use vision model to describe the image (expects raw bytes)
+            print(f"[Photos] Sending {filename} ({len(img_bytes)} bytes) to vision model...", flush=True)
             description = describe_image(img_bytes, mime)
+            print(f"[Photos] Vision model returned {len(description)} chars for {filename}: {description[:100]}...", flush=True)
 
             # Build content
             parts = [f"Google Photos image: {filename}"]
@@ -1202,11 +1209,14 @@ def ingest_photos(email: str, items: list[dict]) -> dict:
                 "camera": f"{camera} {model}".strip(),
             }
 
+            print(f"[Photos] Getting embedding for {filename}...", flush=True)
             embedding = get_embedding(scrubbed[:8000])
+            print(f"[Photos] Saving memory for {filename}...", flush=True)
             memory_id = add_memory(
                 content=scrubbed, source_type="google_photos",
                 embedding=embedding, metadata=metadata,
             )
+            print(f"[Photos] ✓ Saved {filename} as memory {memory_id}", flush=True)
             ingested.append({
                 "id": mid, "filename": filename,
                 "memory_id": memory_id, "description": description[:200],
@@ -1214,6 +1224,7 @@ def ingest_photos(email: str, items: list[dict]) -> dict:
             synced_ids.add(mid)
 
         except Exception as e:
+            print(f"[Photos] ✗ ERROR for {filename}: {e}", flush=True)
             errors.append({"id": mid, "filename": filename, "error": str(e)})
 
     acct["photos_synced_ids"] = list(synced_ids)[-5000:]
