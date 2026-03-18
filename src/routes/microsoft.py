@@ -27,6 +27,24 @@ async def microsoft_credentials_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid JSON file.")
 
 
+@router.post("/api/microsoft/credentials/save")
+def microsoft_credentials_save(payload: dict):
+    """Save Microsoft app credentials from form fields: {client_id, client_secret}."""
+    client_id = (payload.get("client_id") or "").strip()
+    client_secret = (payload.get("client_secret") or "").strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Application (client) ID is required.")
+    if not client_secret:
+        raise HTTPException(status_code=400, detail="Client secret value is required.")
+    from cloud_svc.common import save_credentials
+    save_credentials("microsoft", {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": payload.get("redirect_uri", "http://localhost:8000/api/microsoft/callback"),
+    })
+    return {"success": True}
+
+
 @router.post("/api/microsoft/connect")
 def microsoft_connect():
     from cloud_svc.microsoft_svc import start_oauth_flow

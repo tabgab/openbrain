@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
-  Loader2, CheckCircle2, Search, X, Download, Upload, HelpCircle, Link, Mail, CalendarDays
+  Loader2, CheckCircle2, Search, X, Download, HelpCircle, Link, Mail, CalendarDays
 } from 'lucide-react';
 import { API } from '../types';
 
@@ -18,6 +18,9 @@ export default function MicrosoftIntegration() {
   const [activeTab, setActiveTab] = useState<'onedrive' | 'outlook' | 'calendar'>('onedrive');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [savingCreds, setSavingCreds] = useState(false);
 
   // OneDrive
   const [driveQuery, setDriveQuery] = useState('');
@@ -188,38 +191,71 @@ export default function MicrosoftIntegration() {
         </button>
       </div>
 
-      {!hasCreds && (
-        <div style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <span>No credentials configured.</span>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', background: 'rgba(245,158,11,0.2)', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
-            <Upload size={13} /> Upload credentials JSON
-            <input type="file" accept=".json" hidden onChange={async (e) => {
-              const f = e.target.files?.[0]; if (!f) return;
-              const form = new FormData(); form.append('file', f);
-              try { await axios.post(`${API}/microsoft/credentials/upload`, form); setHasCreds(true); setMsg({ ok: true, text: 'Credentials uploaded.' }); }
-              catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Upload failed' }); }
-              e.target.value = '';
-            }} />
-          </label>
-        </div>
-      )}
-
       <button onClick={() => setShowSetup(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '0.82rem', padding: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
         <HelpCircle size={13} /> {showSetup ? 'Hide' : 'Show'} Setup Guide
       </button>
 
       {showSetup && (
         <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(0,164,239,0.08)', border: '1px solid rgba(0,164,239,0.2)', marginBottom: '1rem', fontSize: '0.85rem' }}>
-          <strong>Microsoft 365 App Setup:</strong>
-          <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.6 }}>
-            <li>Go to <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Azure App Registrations</a></li>
-            <li>Click <strong>New registration</strong> → name it (e.g. "Open Brain") → select <strong>Accounts in any organizational directory and personal Microsoft accounts</strong></li>
-            <li>Under <strong>Redirect URIs</strong>, add: <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>http://localhost:8000/api/microsoft/callback</code> (type: Web)</li>
-            <li>Go to <strong>Certificates & secrets</strong> → <strong>New client secret</strong> → copy the <strong>Value</strong></li>
-            <li>Go to <strong>API permissions</strong> → Add: <code>User.Read</code>, <code>Files.Read</code>, <code>Mail.Read</code>, <code>Calendars.Read</code> (all delegated)</li>
-            <li>Create a JSON file: <code>{`{"client_id": "APP_ID", "client_secret": "SECRET_VALUE"}`}</code></li>
-            <li>Upload it above, then click <strong>Add Account</strong></li>
+          <strong>How to register an Azure app:</strong>
+          <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.7 }}>
+            <li>Go to <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Azure Portal → App registrations</a> and sign in</li>
+            <li>Click <strong>+ New registration</strong> at the top</li>
+            <li>Enter a name (e.g. "Open Brain")</li>
+            <li>Under <strong>Supported account types</strong>, select:<br/><em>"Accounts in any organizational directory and personal Microsoft accounts"</em></li>
+            <li>Under <strong>Redirect URI</strong>, select <strong>Web</strong> from the dropdown and enter:<br/><code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>http://localhost:8000/api/microsoft/callback</code></li>
+            <li>Click <strong>Register</strong></li>
           </ol>
+
+          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Find your Application (client) ID:</strong>
+          <p style={{ margin: '0.25rem 0 0 1.2rem', lineHeight: 1.6 }}>
+            After registration you'll land on the app's <strong>Overview</strong> page. Copy the <strong>Application (client) ID</strong> shown at the top — it's a UUID like <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>.
+          </p>
+
+          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Create a client secret:</strong>
+          <ol style={{ margin: '0.25rem 0 0 1.2rem', padding: 0, lineHeight: 1.7 }}>
+            <li>In the left sidebar, click <strong>Certificates & secrets</strong></li>
+            <li>Click <strong>+ New client secret</strong>, enter a description (e.g. "Open Brain"), pick an expiry, and click <strong>Add</strong></li>
+            <li>Copy the <strong>Value</strong> column immediately — it's only shown once. (Don't copy the "Secret ID", you need the <strong>Value</strong>.)</li>
+          </ol>
+
+          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Add API permissions:</strong>
+          <ol style={{ margin: '0.25rem 0 0 1.2rem', padding: 0, lineHeight: 1.7 }}>
+            <li>In the left sidebar, click <strong>API permissions</strong></li>
+            <li>Click <strong>+ Add a permission</strong> → <strong>Microsoft Graph</strong> → <strong>Delegated permissions</strong></li>
+            <li>Search for and check each of these: <code>User.Read</code>, <code>Files.Read</code>, <code>Mail.Read</code>, <code>Calendars.Read</code></li>
+            <li>Click <strong>Add permissions</strong></li>
+          </ol>
+
+          <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Then paste the Application ID and Secret Value into the fields below.</p>
+        </div>
+      )}
+
+      {!hasCreds && (
+        <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(0,164,239,0.06)', border: '1px solid rgba(0,164,239,0.15)', marginBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.2rem', fontWeight: 600 }}>Application (client) ID</label>
+              <input value={clientId} onChange={e => setClientId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style={{ width: '100%', fontSize: '0.82rem', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)', fontFamily: 'monospace' }} />
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Overview → Application (client) ID</span>
+            </div>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.2rem', fontWeight: 600 }}>Client Secret Value</label>
+              <input value={clientSecret} onChange={e => setClientSecret(e.target.value)} type="password" placeholder="Paste secret value here" style={{ width: '100%', fontSize: '0.82rem', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)', fontFamily: 'monospace' }} />
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Certificates & secrets → Value (not Secret ID)</span>
+            </div>
+          </div>
+          <button className="btn" disabled={savingCreds || !clientId.trim() || !clientSecret.trim()} onClick={async () => {
+            setSavingCreds(true); setMsg(null);
+            try {
+              await axios.post(`${API}/microsoft/credentials/save`, { client_id: clientId.trim(), client_secret: clientSecret.trim() });
+              setHasCreds(true); setMsg({ ok: true, text: 'Credentials saved. Click Add Account to connect.' });
+            } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Save failed' }); }
+            finally { setSavingCreds(false); }
+          }} style={{ padding: '0.35rem 0.9rem', fontSize: '0.82rem' }}>
+            {savingCreds ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+            Save Credentials
+          </button>
         </div>
       )}
 

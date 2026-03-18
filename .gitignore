@@ -55,3 +55,7 @@ google_gmail_state.json
 *.bak
 *.obk
 _Gemini*
+
+# Cloud service credentials and account data
+*_credentials.json
+*_accounts/
