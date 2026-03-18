@@ -42,6 +42,10 @@ from routes.stt import router as stt_router
 from routes.backup import router as backup_router
 from routes.google import router as google_router
 from routes.whatsapp import router as whatsapp_router
+from routes.dropbox import router as dropbox_router
+from routes.pcloud import router as pcloud_router
+from routes.microsoft import router as microsoft_router
+from routes.email_import import router as email_import_router
 
 app.include_router(health_router)
 app.include_router(memories_router)
@@ -51,3 +55,7 @@ app.include_router(stt_router)
 app.include_router(backup_router)
 app.include_router(google_router)
 app.include_router(whatsapp_router)
+app.include_router(dropbox_router)
+app.include_router(pcloud_router)
+app.include_router(microsoft_router)
+app.include_router(email_import_router)
