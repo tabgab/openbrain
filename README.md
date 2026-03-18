@@ -21,6 +21,11 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Gmail Integration** — Search, preview, and ingest emails with optional image OCR; filter by label (including custom labels)
 - **Google Calendar** — Scan calendars with week/month/list views, per-calendar color-coded toggles, recurring event deduplication, and selective ingestion
 - **Google Photos** — Ingest photos via the Picker API; user selects images in Google's native picker, photos are described by the vision model and stored as searchable memories with metadata (camera, resolution, date)
+- **Microsoft 365** — OAuth 2.0 connection to OneDrive, Outlook, and Calendar via Microsoft Graph API; search, filter, and selectively ingest files, emails, and events (supports personal and organizational accounts)
+- **Dropbox** — OAuth 2.0 integration; search files by name/type/path and ingest into your brain
+- **pCloud** — OAuth 2.0 integration; browse and filter files, ingest into your brain
+- **Manual Import** — Import data from end-to-end encrypted or API-less services: Proton Mail/Drive, iCloud Mail/Drive, Tuta Mail, and WhatsApp — export your data, then upload the files
+- **Paginated List Views** — All file and result lists (Google, Microsoft, Dropbox, pCloud) use paginated Prev/Next navigation, matching the Gmail pagination pattern
 - **URL Content Extraction** — Send a URL (X/Twitter post, YouTube video, article, etc.) via Telegram or Dashboard Chat and the actual content is automatically fetched, extracted, and stored as a searchable memory
 - **YouTube Video Summarization** — YouTube links are enriched with the actual video transcript (via captions), summarized by an LLM, and stored with title, channel, summary, and source URL for full searchability
 - **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
@@ -256,6 +261,130 @@ Ingest photos from Google Photos using the **Picker API** (the new post-March 20
 
 ---
 
+## 📎 Microsoft 365 (OneDrive, Outlook, Calendar)
+
+Connect your Microsoft account to search and ingest files from OneDrive, emails from Outlook, and events from Calendar — all via the Microsoft Graph API.
+
+### Setup
+
+1. Go to [Azure Portal → App registrations](https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) and sign in
+2. Click **+ New registration**
+3. Enter a name (e.g. "Open Brain")
+4. Under **Supported account types**, select:  
+   **"Accounts in any organizational directory (Any Microsoft Entra ID tenant — Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)"**
+   > ⚠️ If you plan to sign in with a personal Microsoft account (@outlook.com, @hotmail.com, @live.com), you **must** pick this option. Other options will reject personal accounts with a "Tenant mismatch" error.
+5. Under **Redirect URI**, select **Web** and enter: `http://localhost:8000/api/microsoft/callback`
+6. Click **Register**
+
+#### Enable v2.0 tokens (required for personal accounts)
+
+1. In your app's left sidebar, click **Manifest**
+2. Find `requestedAccessTokenVersion` (likely `null` or `1`)
+3. Change it to `2` — so it reads: `"requestedAccessTokenVersion": 2`
+4. Click **Save**
+
+> Microsoft has two identity platform versions. v1.0 only supports work/school accounts; v2.0 supports both personal and organizational accounts.
+
+#### Get credentials
+
+1. Go to **Overview** → copy the **Application (client) ID**
+2. Go to **Certificates & secrets** → **+ New client secret** → copy the **Value** (not the Secret ID)
+3. Go to **API permissions** → **+ Add a permission** → **Microsoft Graph** → **Delegated permissions** → add: `User.Read`, `Files.Read`, `Mail.Read`, `Calendars.Read`
+4. In the dashboard, paste the Application ID and Client Secret Value
+
+### OneDrive
+
+Search files by name and type. Select individual files or bulk-select and ingest into your brain. Paginated results for large file collections.
+
+### Outlook
+
+Search emails with filters (sender, subject, date range). Preview email content inline. Paginated results with Prev/Next navigation.
+
+### Calendar
+
+Scan calendar events within a configurable date range. View events with time, location, and recurrence info. Selectively ingest events.
+
+#### Troubleshooting
+
+- **"Tenant mismatch"** → Verify the account type allows personal accounts (see setup step 4)
+- **"Access token version" error** → Set `requestedAccessTokenVersion` to `2` in the Manifest
+- **Changes not taking effect** → Wait 60 seconds for Azure to propagate changes
+
+---
+
+## 📦 Dropbox
+
+Connect your Dropbox account to search and ingest files directly into your brain.
+
+### Setup
+
+1. Go to [Dropbox App Console](https://www.dropbox.com/developers/apps)
+2. Click **Create app** → **Scoped access** → **Full Dropbox**
+3. Under **Permissions**, enable: `files.metadata.read`, `files.content.read`
+4. Under **Settings** → **OAuth 2** → Add redirect URI: `http://localhost:8000/api/dropbox/callback`
+5. Create a JSON file with: `{"app_key": "YOUR_KEY", "app_secret": "YOUR_SECRET"}`
+6. Upload it in the dashboard, then click **Add Account**
+
+### Features
+
+- Search files by name, path, and type (documents, spreadsheets, PDFs, images)
+- Server-side pagination via Dropbox cursor tokens
+- Selective or bulk ingestion
+
+---
+
+## ☁️ pCloud
+
+Connect your pCloud account to browse and ingest files.
+
+### Setup
+
+1. Go to [pCloud Developer](https://docs.pcloud.com/) and create an app
+2. Under **Settings**, set the redirect URI: `http://localhost:8000/api/pcloud/callback`
+3. Create a JSON file with: `{"client_id": "YOUR_ID", "client_secret": "YOUR_SECRET"}`
+4. Upload it in the dashboard, then click **Add Account**
+
+### Features
+
+- Browse and filter files by name and type
+- Client-side pagination (30 items per page) with "Select page" / "Select all" controls
+- Selective or bulk ingestion
+
+---
+
+## 📧 Manual Import (Proton, iCloud, Tuta, WhatsApp)
+
+Some services are end-to-end encrypted or don't provide third-party API access. For these, export your data manually and upload the files in the **Files** tab.
+
+### Proton Mail & Drive
+
+1. Install [Proton Mail Bridge](https://proton.me/mail/bridge) on your computer
+2. Connect a mail client (Thunderbird recommended) via Bridge
+3. Export emails as `.mbox` or `.eml` files
+4. Upload in the dashboard under **Files → Manual Import → Proton**
+5. For Proton Drive, download files from [drive.proton.me](https://drive.proton.me) and upload them
+
+### iCloud Mail & Drive
+
+1. Export emails from Apple Mail as `.mbox` (Mailbox → Export Mailbox) or forward as `.eml`
+2. Download files from [icloud.com/iclouddrive](https://www.icloud.com/iclouddrive)
+3. Upload in the dashboard under **Files → Manual Import → iCloud**
+
+### Tuta Mail
+
+1. Use Tuta's export feature (desktop app → Settings → Export)
+2. Export emails as `.eml` or `.mbox`
+3. Upload in the dashboard under **Files → Manual Import → Tuta**
+
+### WhatsApp
+
+1. In WhatsApp, open a chat → tap **⋮** → **Export chat** → **Without media**
+2. Save the `.txt` file
+3. Upload in the dashboard under **Files → Manual Import → WhatsApp**
+4. Messages are grouped by sender, PII-scrubbed, categorized, and stored with metadata
+
+---
+
 ## 🎤 Voice Transcription (STT)
 
 Open Brain transcribes voice notes sent via Telegram (and can be extended to other inputs). Language is auto-detected.
@@ -289,20 +418,7 @@ GROQ_API_KEY=gsk_...        # Required for STT_PROVIDER=groq
 
 ---
 
-## 💬 WhatsApp Import
-
-Import WhatsApp chat history into your Open Brain:
-
-1. In WhatsApp, open a chat → tap **⋮** → **Export chat** → **Without media**
-2. Save the `.txt` file
-3. In the dashboard, go to **Settings → WhatsApp Import**
-4. Select the file, optionally name the chat, and click **Import Chat**
-
-Messages are grouped by sender (consecutive messages merged), PII-scrubbed, categorized, and stored with metadata (sender, timestamp, chat name).
-
----
-
-## 🔌 MCP Server
+##  MCP Server
 
 Other AI systems can connect to Open Brain as an MCP server with **18 tools**:
 
@@ -366,7 +482,7 @@ The SSE server runs on `http://localhost:3100/sse` when started with `./start-op
 Access at **http://localhost:5173** after starting services.
 
 - **Dashboard** — Browse memories with click-to-expand full content, edit/delete, semantic search, upload documents. Click the Database indicator to see live metrics (total memories, DB size, storage breakdown, source/category stats, timeline)
-- **Ingest** — Upload documents, connect Google accounts (Drive, Gmail, Calendar, Photos), import WhatsApp chats. Already-synced items can be force re-added with a confirmation prompt
+- **Ingest** — Two tabs: **Files** (upload documents + manual import from Proton, iCloud, Tuta, WhatsApp) and **Cloud Storage** (Google, Microsoft 365, Dropbox, pCloud — all with OAuth). Already-synced items can be force re-added with a confirmation prompt
 - **Chat** — Conversational interface with streaming answers, live thinking process, and search mode toggle (Memory Only / Advanced Search)
 - **Settings** — Configure model roles, API keys, database, Telegram token, voice transcription (STT provider, local Whisper model download, GPU detection), backup & restore
 - **Logs** — Real-time system event log from all services
@@ -406,6 +522,10 @@ openbrain/
 │   │   ├── stt.py          #   Speech-to-text utilities
 │   │   ├── backup.py       #   Encrypted backup & restore
 │   │   ├── google.py       #   Google Drive, Gmail, Calendar, Photos endpoints
+│   │   ├── microsoft.py    #   Microsoft 365 (OneDrive, Outlook, Calendar)
+│   │   ├── dropbox.py      #   Dropbox file search & ingestion
+│   │   ├── pcloud.py       #   pCloud file browsing & ingestion
+│   │   ├── email_import.py #   MBOX/EML email import (shared by Proton/iCloud/Tuta)
 │   │   └── whatsapp.py     #   WhatsApp chat import
 │   ├── google_svc/         # Google integration service layer
 │   │   ├── auth.py         #   OAuth 2.0, multi-account management
@@ -413,6 +533,11 @@ openbrain/
 │   │   ├── gmail.py        #   Gmail labels, search, preview, ingestion
 │   │   ├── calendar.py     #   Calendar scanning, dedup, ingestion
 │   │   └── photos.py       #   Photos Picker API, download, ingestion
+│   ├── cloud_svc/          # Cloud storage integration service layer
+│   │   ├── common.py       #   Shared credential & account helpers
+│   │   ├── microsoft_svc.py#   Microsoft Graph: OneDrive, Outlook, Calendar
+│   │   ├── dropbox_svc.py  #   Dropbox OAuth, search, download, ingestion
+│   │   └── pcloud_svc.py   #   pCloud OAuth, list, download, ingestion
 │   ├── db.py               # PostgreSQL/pgvector database layer
 │   ├── llm.py              # Multi-model LLM client (roles, embeddings, vision)
 │   ├── ingest.py           # Document ingestion (PDF, images, Word, Excel)
@@ -430,7 +555,22 @@ openbrain/
 │   ├── test_file_sizes.py        # No file exceeds 400 lines
 │   └── test_google_svc_logic.py  # Helper function unit tests
 ├── ui/
-│   └── src/App.tsx         # React dashboard (settings, memories, logs)
+│   └── src/
+│       ├── App.tsx                 # React app shell (tab navigation)
+│       └── components/
+│           ├── IngestTab.tsx           # Ingest view (Files + Cloud Storage tabs)
+│           ├── GoogleIntegration.tsx    # Google Drive, Gmail, Calendar, Photos
+│           ├── MicrosoftIntegration.tsx # Microsoft 365 (OneDrive, Outlook, Calendar)
+│           ├── DropboxIntegration.tsx   # Dropbox file search & ingestion
+│           ├── PCloudIntegration.tsx    # pCloud file browsing & ingestion
+│           ├── ProtonImport.tsx         # Proton Mail/Drive manual import
+│           ├── ICloudImport.tsx         # iCloud Mail/Drive manual import
+│           ├── TutaImport.tsx           # Tuta Mail manual import
+│           ├── WhatsAppImport.tsx       # WhatsApp chat import
+│           ├── DashboardTab.tsx         # Memory browser, search, metrics
+│           ├── ChatTab.tsx              # Chat interface with streaming
+│           ├── SettingsTab.tsx          # Model config, API keys, STT, backup
+│           └── LogsTab.tsx              # Real-time system event log
 ├── init-scripts/
 │   └── schema.sql          # PostgreSQL schema (memories + vault tables)
 ├── docker-compose.yml      # PostgreSQL + pgvector container
@@ -536,9 +676,10 @@ python -m pytest tests/ -v
 
 The backend follows a modular architecture:
 
-- **`api.py`** is a thin entrypoint (~55 lines) — app setup, CORS, and `include_router()` calls
-- **`routes/`** package contains 8 domain-specific route modules, each with its own `APIRouter`
+- **`api.py`** is a thin entrypoint — app setup, CORS, and `include_router()` calls
+- **`routes/`** package contains 12 domain-specific route modules, each with its own `APIRouter`
 - **`google_svc/`** package splits Google integrations into 5 focused modules (auth, drive, gmail, calendar, photos)
+- **`cloud_svc/`** package handles non-Google cloud integrations (Microsoft Graph, Dropbox, pCloud) with shared credential/account helpers
 - **`event_log.py`** is a shared module for the in-memory event log, avoiding circular imports between `api.py` and route modules
 - No source file exceeds 400 lines (enforced by tests)
 
