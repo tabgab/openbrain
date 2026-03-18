@@ -29,6 +29,8 @@ export default function MicrosoftIntegration() {
   const [driveSelected, setDriveSelected] = useState<Set<string>>(new Set());
   const [driveSearching, setDriveSearching] = useState(false);
   const [driveIngesting, setDriveIngesting] = useState(false);
+  const [drivePageTokens, setDrivePageTokens] = useState<string[]>([]);
+  const [driveNextToken, setDriveNextToken] = useState('');
 
   // Outlook
   const [mailQuery, setMailQuery] = useState('');
@@ -39,12 +41,16 @@ export default function MicrosoftIntegration() {
   const [mailSelected, setMailSelected] = useState<Set<string>>(new Set());
   const [mailSearching, setMailSearching] = useState(false);
   const [mailIngesting, setMailIngesting] = useState(false);
+  const [mailPageTokens, setMailPageTokens] = useState<string[]>([]);
+  const [mailNextToken, setMailNextToken] = useState('');
 
   // Calendar
   const [calEvents, setCalEvents] = useState<MsEvent[]>([]);
   const [calSelected, setCalSelected] = useState<Set<string>>(new Set());
   const [calScanning, setCalScanning] = useState(false);
   const [calIngesting, setCalIngesting] = useState(false);
+  const [calPageTokens, setCalPageTokens] = useState<string[]>([]);
+  const [calNextToken, setCalNextToken] = useState('');
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -91,16 +97,20 @@ export default function MicrosoftIntegration() {
   };
 
   // OneDrive
-  const searchDrive = async () => {
+  const fetchDrivePage = async (pageToken: string) => {
     if (!activeAccount) return;
     setDriveSearching(true); setMsg(null); setDriveFiles([]); setDriveSelected(new Set());
     try {
-      const res = await axios.post(`${API}/microsoft/onedrive/search`, { email: activeAccount, query: driveQuery, file_type: driveType, max_results: 30 });
+      const res = await axios.post(`${API}/microsoft/onedrive/search`, { email: activeAccount, query: driveQuery, file_type: driveType, max_results: 30, page_token: pageToken });
       setDriveFiles(res.data.files || []);
+      setDriveNextToken(res.data.nextPageToken || '');
       if (res.data.files?.length === 0) setMsg({ ok: true, text: 'No files found.' });
     } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'OneDrive search failed' }); }
     finally { setDriveSearching(false); }
   };
+  const searchDrive = () => { setDrivePageTokens(['']); fetchDrivePage(''); };
+  const driveNextPage = () => { if (!driveNextToken) return; setDrivePageTokens(prev => [...prev, driveNextToken]); fetchDrivePage(driveNextToken); };
+  const drivePrevPage = () => { if (drivePageTokens.length <= 1) return; const t = [...drivePageTokens]; t.pop(); setDrivePageTokens(t); fetchDrivePage(t[t.length - 1]); };
 
   const ingestDrive = async () => {
     if (!activeAccount || driveSelected.size === 0) return;
@@ -115,19 +125,23 @@ export default function MicrosoftIntegration() {
   };
 
   // Outlook
-  const searchMail = async () => {
+  const fetchMailPage = async (pageToken: string) => {
     if (!activeAccount) return;
     setMailSearching(true); setMsg(null); setMailMsgs([]); setMailSelected(new Set());
     try {
       const res = await axios.post(`${API}/microsoft/outlook/search`, {
         email: activeAccount, query: mailQuery, from_filter: mailFrom,
-        subject_filter: mailSubject, newer_than_days: mailNewer, max_results: 30,
+        subject_filter: mailSubject, newer_than_days: mailNewer, max_results: 30, page_token: pageToken,
       });
       setMailMsgs(res.data.messages || []);
+      setMailNextToken(res.data.nextPageToken || '');
       if (res.data.messages?.length === 0) setMsg({ ok: true, text: 'No emails found.' });
     } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Outlook search failed' }); }
     finally { setMailSearching(false); }
   };
+  const searchMail = () => { setMailPageTokens(['']); fetchMailPage(''); };
+  const mailNextPage = () => { if (!mailNextToken) return; setMailPageTokens(prev => [...prev, mailNextToken]); fetchMailPage(mailNextToken); };
+  const mailPrevPage = () => { if (mailPageTokens.length <= 1) return; const t = [...mailPageTokens]; t.pop(); setMailPageTokens(t); fetchMailPage(t[t.length - 1]); };
 
   const ingestMail = async () => {
     if (!activeAccount || mailSelected.size === 0) return;
@@ -142,17 +156,21 @@ export default function MicrosoftIntegration() {
   };
 
   // Calendar
-  const scanCal = async () => {
+  const fetchCalPage = async (pageToken: string) => {
     if (!activeAccount) return;
-    setCalScanning(true); setMsg(null);
+    setCalScanning(true); setMsg(null); setCalEvents([]); setCalSelected(new Set());
     try {
-      const res = await axios.post(`${API}/microsoft/calendar/scan`, { email: activeAccount });
+      const res = await axios.post(`${API}/microsoft/calendar/scan`, { email: activeAccount, page_token: pageToken });
       setCalEvents(res.data.events || []);
+      setCalNextToken(res.data.nextPageToken || '');
       const newCount = (res.data.events || []).filter((e: MsEvent) => !e.already_synced).length;
       setMsg({ ok: true, text: `Found ${res.data.total} events (${newCount} new)` });
     } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Calendar scan failed' }); }
     finally { setCalScanning(false); }
   };
+  const scanCal = () => { setCalPageTokens(['']); fetchCalPage(''); };
+  const calNextPage = () => { if (!calNextToken) return; setCalPageTokens(prev => [...prev, calNextToken]); fetchCalPage(calNextToken); };
+  const calPrevPage = () => { if (calPageTokens.length <= 1) return; const t = [...calPageTokens]; t.pop(); setCalPageTokens(t); fetchCalPage(t[t.length - 1]); };
 
   const ingestCal = async () => {
     if (!activeAccount || calSelected.size === 0) return;
@@ -352,6 +370,13 @@ export default function MicrosoftIntegration() {
                   ))}
                 </div>
               )}
+              {driveFiles.length > 0 && (drivePageTokens.length > 1 || driveNextToken) && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button className="btn" onClick={drivePrevPage} disabled={drivePageTokens.length <= 1 || driveSearching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: drivePageTokens.length <= 1 ? 0.4 : 1 }}>← Prev</button>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Page {drivePageTokens.length}</span>
+                  <button className="btn" onClick={driveNextPage} disabled={!driveNextToken || driveSearching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: !driveNextToken ? 0.4 : 1 }}>Next →</button>
+                </div>
+              )}
               {driveFiles.length > 0 && driveSelected.size > 0 && (
                 <button className="btn" onClick={ingestDrive} disabled={driveIngesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
                   {driveIngesting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
@@ -396,6 +421,13 @@ export default function MicrosoftIntegration() {
                   ))}
                 </div>
               )}
+              {mailMsgs.length > 0 && (mailPageTokens.length > 1 || mailNextToken) && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button className="btn" onClick={mailPrevPage} disabled={mailPageTokens.length <= 1 || mailSearching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: mailPageTokens.length <= 1 ? 0.4 : 1 }}>← Prev</button>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Page {mailPageTokens.length}</span>
+                  <button className="btn" onClick={mailNextPage} disabled={!mailNextToken || mailSearching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: !mailNextToken ? 0.4 : 1 }}>Next →</button>
+                </div>
+              )}
               {mailMsgs.length > 0 && mailSelected.size > 0 && (
                 <button className="btn" onClick={ingestMail} disabled={mailIngesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
                   {mailIngesting ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
@@ -434,6 +466,13 @@ export default function MicrosoftIntegration() {
                       {ev.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
                     </label>
                   ))}
+                </div>
+              )}
+              {calEvents.length > 0 && (calPageTokens.length > 1 || calNextToken) && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button className="btn" onClick={calPrevPage} disabled={calPageTokens.length <= 1 || calScanning} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: calPageTokens.length <= 1 ? 0.4 : 1 }}>← Prev</button>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Page {calPageTokens.length}</span>
+                  <button className="btn" onClick={calNextPage} disabled={!calNextToken || calScanning} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: !calNextToken ? 0.4 : 1 }}>Next →</button>
                 </div>
               )}
               {calEvents.length > 0 && calSelected.size > 0 && (

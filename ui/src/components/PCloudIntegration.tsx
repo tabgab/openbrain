@@ -18,10 +18,12 @@ export default function PCloudIntegration() {
 
   const [query, setQuery] = useState('');
   const [fileType, setFileType] = useState('');
-  const [files, setFiles] = useState<PCloudFile[]>([]);
+  const [allFiles, setAllFiles] = useState<PCloudFile[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searching, setSearching] = useState(false);
   const [ingesting, setIngesting] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 30;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -70,16 +72,19 @@ export default function PCloudIntegration() {
 
   const searchFiles = async () => {
     if (!activeAccount) return;
-    setSearching(true); setMsg(null); setFiles([]); setSelected(new Set());
+    setSearching(true); setMsg(null); setAllFiles([]); setSelected(new Set()); setPage(1);
     try {
       const res = await axios.post(`${API}/pcloud/search`, {
-        email: activeAccount, query, file_type: fileType, max_results: 30,
+        email: activeAccount, query, file_type: fileType, max_results: 500,
       });
-      setFiles(res.data.files || []);
+      setAllFiles(res.data.files || []);
       if (res.data.files?.length === 0) setMsg({ ok: true, text: 'No files found.' });
     } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Search failed' }); }
     finally { setSearching(false); }
   };
+
+  const totalPages = Math.max(1, Math.ceil(allFiles.length / PAGE_SIZE));
+  const files = allFiles.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const ingestFiles = async () => {
     if (!activeAccount || selected.size === 0) return;
@@ -95,7 +100,8 @@ export default function PCloudIntegration() {
   };
 
   const toggle = (id: string) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const selectAll = () => setSelected(new Set(files.filter(f => !f.already_synced).map(f => f.id)));
+  const selectAll = () => setSelected(new Set(allFiles.map(f => f.id)));
+  const selectPage = () => setSelected(prev => { const s = new Set(prev); files.forEach(f => s.add(f.id)); return s; });
 
   const sty = {
     filter: { display: 'flex', gap: '0.4rem', flexWrap: 'wrap' as const, marginBottom: '0.5rem' },
@@ -179,7 +185,8 @@ export default function PCloudIntegration() {
           {files.length > 0 && (
             <div style={{ maxHeight: '250px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.6rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                <button onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all</button>
+                <button onClick={selectPage} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select page</button>
+                {allFiles.length > PAGE_SIZE && <button onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.78rem', padding: 0, marginRight: '0.5rem' }}>Select all ({allFiles.length})</button>}
                 <span style={{ marginLeft: 'auto' }}>{selected.size} selected</span>
               </div>
               {files.map(f => (
@@ -191,7 +198,14 @@ export default function PCloudIntegration() {
               ))}
             </div>
           )}
-          {files.length > 0 && selected.size > 0 && (
+          {allFiles.length > PAGE_SIZE && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <button className="btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: page <= 1 ? 0.4 : 1 }}>← Prev</button>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Page {page} of {totalPages}</span>
+              <button className="btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: page >= totalPages ? 0.4 : 1 }}>Next →</button>
+            </div>
+          )}
+          {allFiles.length > 0 && selected.size > 0 && (
             <button className="btn" onClick={ingestFiles} disabled={ingesting} style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}>
               {ingesting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
               Ingest {selected.size} file{selected.size !== 1 ? 's' : ''}

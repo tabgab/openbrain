@@ -23,6 +23,8 @@ export default function DropboxIntegration() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searching, setSearching] = useState(false);
   const [ingesting, setIngesting] = useState(false);
+  const [pageTokens, setPageTokens] = useState<string[]>([]);
+  const [nextToken, setNextToken] = useState('');
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -69,18 +71,23 @@ export default function DropboxIntegration() {
     setMsg({ ok: true, text: `Disconnected ${email}` });
   };
 
-  const searchFiles = async () => {
+  const fetchPage = async (pageToken: string) => {
     if (!activeAccount) return;
     setSearching(true); setMsg(null); setFiles([]); setSelected(new Set());
     try {
       const res = await axios.post(`${API}/dropbox/search`, {
-        email: activeAccount, query, path, file_type: fileType, max_results: 30,
+        email: activeAccount, query, path, file_type: fileType, max_results: 30, page_token: pageToken,
       });
       setFiles(res.data.files || []);
+      setNextToken(res.data.nextPageToken || '');
       if (res.data.files?.length === 0) setMsg({ ok: true, text: 'No files found.' });
     } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Search failed' }); }
     finally { setSearching(false); }
   };
+
+  const searchFiles = () => { setPageTokens(['']); fetchPage(''); };
+  const nextPage = () => { if (!nextToken) return; setPageTokens(prev => [...prev, nextToken]); fetchPage(nextToken); };
+  const prevPage = () => { if (pageTokens.length <= 1) return; const t = [...pageTokens]; t.pop(); setPageTokens(t); fetchPage(t[t.length - 1]); };
 
   const ingestFiles = async () => {
     if (!activeAccount || selected.size === 0) return;
@@ -194,6 +201,13 @@ export default function DropboxIntegration() {
                   {f.already_synced && <span style={{ fontSize: '0.7rem', color: 'var(--success)' }}>synced</span>}
                 </label>
               ))}
+            </div>
+          )}
+          {files.length > 0 && (pageTokens.length > 1 || nextToken) && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <button className="btn" onClick={prevPage} disabled={pageTokens.length <= 1 || searching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: pageTokens.length <= 1 ? 0.4 : 1 }}>← Prev</button>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Page {pageTokens.length}</span>
+              <button className="btn" onClick={nextPage} disabled={!nextToken || searching} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: !nextToken ? 0.4 : 1 }}>Next →</button>
             </div>
           )}
           {files.length > 0 && selected.size > 0 && (

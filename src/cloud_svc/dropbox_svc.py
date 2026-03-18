@@ -162,8 +162,9 @@ def disconnect(email: str):
 
 
 def search_files(email: str, query: str = "", path: str = "",
-                 file_type: str = "", max_results: int = 30) -> dict:
-    """Search Dropbox files."""
+                 file_type: str = "", max_results: int = 30,
+                 page_token: str = "") -> dict:
+    """Search Dropbox files. Supports pagination via cursor tokens."""
     token = _get_token(email)
     if not token:
         return {"error": f"Account {email} not connected or token expired."}
@@ -171,23 +172,27 @@ def search_files(email: str, query: str = "", path: str = "",
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     if query:
-        # Use search_v2
-        payload: dict = {
-            "query": query,
-            "options": {"max_results": min(max_results, 100)},
-        }
-        if path:
-            payload["options"]["path"] = path
-        if file_type:
-            ext_map = {
-                "document": [".doc", ".docx", ".pdf", ".txt", ".md"],
-                "spreadsheet": [".xls", ".xlsx", ".csv"],
-                "image": [".jpg", ".jpeg", ".png", ".gif", ".webp"],
-                "pdf": [".pdf"],
+        if page_token:
+            # Continue a previous search
+            resp = requests.post(f"{API_BASE}/files/search/continue_v2",
+                                 headers=headers, json={"cursor": page_token})
+        else:
+            payload: dict = {
+                "query": query,
+                "options": {"max_results": min(max_results, 100)},
             }
-            payload["options"]["file_extensions"] = ext_map.get(file_type, [])
+            if path:
+                payload["options"]["path"] = path
+            if file_type:
+                ext_map = {
+                    "document": [".doc", ".docx", ".pdf", ".txt", ".md"],
+                    "spreadsheet": [".xls", ".xlsx", ".csv"],
+                    "image": [".jpg", ".jpeg", ".png", ".gif", ".webp"],
+                    "pdf": [".pdf"],
+                }
+                payload["options"]["file_extensions"] = ext_map.get(file_type, [])
+            resp = requests.post(f"{API_BASE}/files/search_v2", headers=headers, json=payload)
 
-        resp = requests.post(f"{API_BASE}/files/search_v2", headers=headers, json=payload)
         if resp.status_code != 200:
             return {"error": f"Dropbox search failed: {resp.text}"}
         data = resp.json()
@@ -203,12 +208,20 @@ def search_files(email: str, query: str = "", path: str = "",
                     "modifiedTime": meta.get("server_modified", ""),
                     "already_synced": False,
                 })
-        return {"files": files}
+        result: dict = {"files": files}
+        if data.get("has_more") and data.get("cursor"):
+            result["nextPageToken"] = data["cursor"]
+        return result
     else:
-        # List folder
-        folder_path = path or ""
-        payload = {"path": folder_path, "limit": min(max_results, 100)}
-        resp = requests.post(f"{API_BASE}/files/list_folder", headers=headers, json=payload)
+        if page_token:
+            # Continue listing a folder
+            resp = requests.post(f"{API_BASE}/files/list_folder/continue",
+                                 headers=headers, json={"cursor": page_token})
+        else:
+            folder_path = path or ""
+            payload = {"path": folder_path, "limit": min(max_results, 100)}
+            resp = requests.post(f"{API_BASE}/files/list_folder", headers=headers, json=payload)
+
         if resp.status_code != 200:
             return {"error": f"Dropbox list failed: {resp.text}"}
         data = resp.json()
@@ -223,7 +236,10 @@ def search_files(email: str, query: str = "", path: str = "",
                     "modifiedTime": entry.get("server_modified", ""),
                     "already_synced": False,
                 })
-        return {"files": files}
+        result = {"files": files}
+        if data.get("has_more") and data.get("cursor"):
+            result["nextPageToken"] = data["cursor"]
+        return result
 
 
 def download_file(email: str, file_path: str) -> Optional[bytes]:

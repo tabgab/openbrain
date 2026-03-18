@@ -163,20 +163,21 @@ def disconnect(email: str):
 # --- OneDrive ---
 
 def search_onedrive(email: str, query: str = "", file_type: str = "",
-                    max_results: int = 30) -> dict:
-    """Search OneDrive files."""
+                    max_results: int = 30, page_token: str = "") -> dict:
+    """Search OneDrive files. Supports pagination via @odata.nextLink."""
     h = _headers(email)
     if not h:
         return {"error": f"Account {email} not connected."}
 
-    if query:
+    if page_token:
+        resp = requests.get(page_token, headers=h)
+    elif query:
         url = f"{GRAPH_BASE}/me/drive/root/search(q='{urllib.parse.quote(query)}')"
-        params = {"$top": min(max_results, 50)}
+        resp = requests.get(url, headers=h, params={"$top": min(max_results, 50)})
     else:
         url = f"{GRAPH_BASE}/me/drive/root/children"
-        params = {"$top": min(max_results, 50)}
+        resp = requests.get(url, headers=h, params={"$top": min(max_results, 50)})
 
-    resp = requests.get(url, headers=h, params=params)
     if resp.status_code != 200:
         return {"error": f"OneDrive search failed: {resp.text}"}
 
@@ -205,7 +206,10 @@ def search_onedrive(email: str, query: str = "", file_type: str = "",
             "mimeType": item.get("file", {}).get("mimeType", ""),
             "already_synced": False,
         })
-    return {"files": files}
+    result: dict = {"files": files}
+    if data.get("@odata.nextLink"):
+        result["nextPageToken"] = data["@odata.nextLink"]
+    return result
 
 
 def download_onedrive_file(email: str, file_id: str) -> Optional[bytes]:
@@ -260,34 +264,39 @@ def ingest_onedrive_files(email: str, file_ids: list[str]) -> dict:
 
 def search_outlook(email: str, query: str = "", from_filter: str = "",
                    subject_filter: str = "", folder: str = "inbox",
-                   newer_than_days: int = 7, max_results: int = 30) -> dict:
-    """Search Outlook messages via Microsoft Graph."""
+                   newer_than_days: int = 7, max_results: int = 30,
+                   page_token: str = "") -> dict:
+    """Search Outlook messages via Microsoft Graph. Supports pagination."""
     h = _headers(email)
     if not h:
         return {"error": f"Account {email} not connected."}
 
-    # Build $filter
-    filters = []
-    cutoff = (datetime.datetime.now() - datetime.timedelta(days=newer_than_days)).isoformat() + "Z"
-    filters.append(f"receivedDateTime ge {cutoff}")
-    if from_filter:
-        filters.append(f"contains(from/emailAddress/address, '{from_filter}')")
-    if subject_filter:
-        filters.append(f"contains(subject, '{subject_filter}')")
+    if page_token:
+        resp = requests.get(page_token, headers=h)
+    else:
+        # Build $filter
+        filters = []
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=newer_than_days)).isoformat() + "Z"
+        filters.append(f"receivedDateTime ge {cutoff}")
+        if from_filter:
+            filters.append(f"contains(from/emailAddress/address, '{from_filter}')")
+        if subject_filter:
+            filters.append(f"contains(subject, '{subject_filter}')")
 
-    params: dict = {
-        "$top": min(max_results, 50),
-        "$orderby": "receivedDateTime desc",
-        "$select": "id,subject,from,receivedDateTime,bodyPreview,isRead",
-    }
-    if filters:
-        params["$filter"] = " and ".join(filters)
-    if query:
-        params["$search"] = f'"{query}"'
-        params.pop("$filter", None)  # $search and $filter can't combine
+        params: dict = {
+            "$top": min(max_results, 50),
+            "$orderby": "receivedDateTime desc",
+            "$select": "id,subject,from,receivedDateTime,bodyPreview,isRead",
+        }
+        if filters:
+            params["$filter"] = " and ".join(filters)
+        if query:
+            params["$search"] = f'"{ query}"'
+            params.pop("$filter", None)  # $search and $filter can't combine
 
-    url = f"{GRAPH_BASE}/me/mailFolders/{folder}/messages"
-    resp = requests.get(url, headers=h, params=params)
+        url = f"{GRAPH_BASE}/me/mailFolders/{folder}/messages"
+        resp = requests.get(url, headers=h, params=params)
+
     if resp.status_code != 200:
         return {"error": f"Outlook search failed: {resp.text}"}
 
@@ -303,7 +312,10 @@ def search_outlook(email: str, query: str = "", from_filter: str = "",
             "snippet": msg.get("bodyPreview", "")[:200],
             "already_synced": False,
         })
-    return {"messages": messages, "total": len(messages)}
+    result: dict = {"messages": messages, "total": len(messages)}
+    if data.get("@odata.nextLink"):
+        result["nextPageToken"] = data["@odata.nextLink"]
+    return result
 
 
 def ingest_outlook_messages(email: str, message_ids: list[str]) -> dict:
@@ -361,24 +373,29 @@ def ingest_outlook_messages(email: str, message_ids: list[str]) -> dict:
 
 # --- Calendar ---
 
-def scan_calendar(email: str, days_back: int = 30, days_forward: int = 30) -> dict:
-    """Fetch calendar events from Microsoft 365."""
+def scan_calendar(email: str, days_back: int = 30, days_forward: int = 30,
+                  page_token: str = "") -> dict:
+    """Fetch calendar events from Microsoft 365. Supports pagination."""
     h = _headers(email)
     if not h:
         return {"error": f"Account {email} not connected."}
 
-    start = (datetime.datetime.now() - datetime.timedelta(days=days_back)).isoformat() + "Z"
-    end = (datetime.datetime.now() + datetime.timedelta(days=days_forward)).isoformat() + "Z"
+    if page_token:
+        resp = requests.get(page_token, headers=h)
+    else:
+        start = (datetime.datetime.now() - datetime.timedelta(days=days_back)).isoformat() + "Z"
+        end = (datetime.datetime.now() + datetime.timedelta(days=days_forward)).isoformat() + "Z"
 
-    url = f"{GRAPH_BASE}/me/calendarView"
-    params = {
-        "startDateTime": start,
-        "endDateTime": end,
-        "$top": 100,
-        "$orderby": "start/dateTime",
-        "$select": "id,subject,start,end,location,body,organizer,isAllDay,recurrence",
-    }
-    resp = requests.get(url, headers=h, params=params)
+        url = f"{GRAPH_BASE}/me/calendarView"
+        params = {
+            "startDateTime": start,
+            "endDateTime": end,
+            "$top": 50,
+            "$orderby": "start/dateTime",
+            "$select": "id,subject,start,end,location,body,organizer,isAllDay,recurrence",
+        }
+        resp = requests.get(url, headers=h, params=params)
+
     if resp.status_code != 200:
         return {"error": f"Calendar fetch failed: {resp.text}"}
 
@@ -396,7 +413,10 @@ def scan_calendar(email: str, days_back: int = 30, days_forward: int = 30) -> di
             "is_recurring": ev.get("recurrence") is not None,
             "already_synced": False,
         })
-    return {"events": events, "total": len(events)}
+    result: dict = {"events": events, "total": len(events)}
+    if data.get("@odata.nextLink"):
+        result["nextPageToken"] = data["@odata.nextLink"]
+    return result
 
 
 def ingest_calendar_events(email: str, event_ids: list[str]) -> dict:

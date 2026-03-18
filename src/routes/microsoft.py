@@ -89,6 +89,7 @@ def microsoft_onedrive_search(payload: dict):
         query=payload.get("query", ""),
         file_type=payload.get("file_type", ""),
         max_results=payload.get("max_results", 30),
+        page_token=payload.get("page_token", ""),
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -121,6 +122,7 @@ def microsoft_outlook_search(payload: dict):
         folder=payload.get("folder", "inbox"),
         newer_than_days=payload.get("newer_than_days", 7),
         max_results=payload.get("max_results", 30),
+        page_token=payload.get("page_token", ""),
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -149,6 +151,7 @@ def microsoft_calendar_scan(payload: dict):
         email=email,
         days_back=payload.get("days_back", 30),
         days_forward=payload.get("days_forward", 30),
+        page_token=payload.get("page_token", ""),
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
