@@ -197,29 +197,57 @@ export default function MicrosoftIntegration() {
 
       {showSetup && (
         <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(0,164,239,0.08)', border: '1px solid rgba(0,164,239,0.2)', marginBottom: '1rem', fontSize: '0.85rem' }}>
-          <strong>How to register an Azure app:</strong>
+          <strong>Step 1 — Register an Azure app:</strong>
           <ol style={{ margin: '0.5rem 0 0 1.2rem', padding: 0, lineHeight: 1.7 }}>
             <li>Go to <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Azure Portal → App registrations</a> and sign in</li>
             <li>Click <strong>+ New registration</strong> at the top</li>
             <li>Enter a name (e.g. "Open Brain")</li>
-            <li>Under <strong>Supported account types</strong>, select:<br/><em>"Accounts in any organizational directory and personal Microsoft accounts"</em></li>
+            <li>
+              Under <strong>Supported account types</strong>, you'll see four options. Select:<br/>
+              <strong style={{ color: '#00A4EF' }}>"Accounts in any organizational directory (Any Microsoft Entra ID tenant — Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)"</strong>
+              <div style={{ margin: '0.35rem 0 0 0', padding: '0.4rem 0.6rem', borderRadius: '6px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', fontSize: '0.8rem', color: '#f59e0b' }}>
+                <strong>Important:</strong> If you plan to sign in with a personal Microsoft account (@outlook.com, @hotmail.com, @live.com, etc.), you <em>must</em> pick this option.
+                The other options (Single tenant, Multitenant only) will reject personal accounts with a "Tenant mismatch" error.
+              </div>
+            </li>
             <li>Under <strong>Redirect URI</strong>, select <strong>Web</strong> from the dropdown and enter:<br/><code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>http://localhost:8000/api/microsoft/callback</code></li>
             <li>Click <strong>Register</strong></li>
           </ol>
 
-          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Find your Application (client) ID:</strong>
-          <p style={{ margin: '0.25rem 0 0 1.2rem', lineHeight: 1.6 }}>
-            After registration you'll land on the app's <strong>Overview</strong> page. Copy the <strong>Application (client) ID</strong> shown at the top — it's a UUID like <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>.
+          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Step 2 — Enable v2.0 tokens (required for personal accounts):</strong>
+          <div style={{ margin: '0.35rem 0 0 0', padding: '0.4rem 0.6rem', borderRadius: '6px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', fontSize: '0.8rem', color: '#f59e0b', marginBottom: '0.4rem' }}>
+            <strong>Skip this step if you'll only use work/school accounts.</strong> But for personal accounts, Azure will block sign-in unless you do this first.
+          </div>
+          <ol style={{ margin: '0.25rem 0 0 1.2rem', padding: 0, lineHeight: 1.7 }}>
+            <li>In your app's left sidebar, click <strong>Manifest</strong></li>
+            <li>Find the property <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>requestedAccessTokenVersion</code> — it will likely be <code>null</code> or <code>1</code></li>
+            <li>Change it to <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>2</code> — so it reads: <code>"requestedAccessTokenVersion": 2</code></li>
+            <li>Click <strong>Save</strong> at the top</li>
+          </ol>
+          <p style={{ margin: '0.25rem 0 0 1.2rem', lineHeight: 1.5, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Microsoft has two identity platform versions. v1.0 only supports work/school accounts; v2.0 supports both personal and organizational accounts.
+            Without this change, selecting "personal accounts" in the account types will throw an error about access token version mismatch.
           </p>
 
-          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Create a client secret:</strong>
+          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Step 3 — Find your Application (client) ID:</strong>
+          <p style={{ margin: '0.25rem 0 0 1.2rem', lineHeight: 1.6 }}>
+            Go back to <strong>Overview</strong> (top of the left sidebar). Copy the <strong>Application (client) ID</strong> shown near the top — it's a UUID like <code style={{ background: 'rgba(255,255,255,0.08)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>.
+          </p>
+
+          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Step 4 — Create a client secret:</strong>
           <ol style={{ margin: '0.25rem 0 0 1.2rem', padding: 0, lineHeight: 1.7 }}>
             <li>In the left sidebar, click <strong>Certificates & secrets</strong></li>
-            <li>Click <strong>+ New client secret</strong>, enter a description (e.g. "Open Brain"), pick an expiry, and click <strong>Add</strong></li>
-            <li>Copy the <strong>Value</strong> column immediately — it's only shown once. (Don't copy the "Secret ID", you need the <strong>Value</strong>.)</li>
+            <li>Under the <strong>Client secrets</strong> tab, click <strong>+ New client secret</strong></li>
+            <li>Enter a description (e.g. "Open Brain"), pick an expiry, and click <strong>Add</strong></li>
+            <li>
+              Copy the <strong>Value</strong> column immediately — it's only shown once
+              <div style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#f59e0b' }}>
+                <strong>Copy the "Value", not the "Secret ID".</strong> The Value is the long string you need. The Secret ID is just an internal identifier.
+              </div>
+            </li>
           </ol>
 
-          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Add API permissions:</strong>
+          <strong style={{ display: 'block', marginTop: '0.75rem' }}>Step 5 — Add API permissions:</strong>
           <ol style={{ margin: '0.25rem 0 0 1.2rem', padding: 0, lineHeight: 1.7 }}>
             <li>In the left sidebar, click <strong>API permissions</strong></li>
             <li>Click <strong>+ Add a permission</strong> → <strong>Microsoft Graph</strong> → <strong>Delegated permissions</strong></li>
@@ -227,7 +255,16 @@ export default function MicrosoftIntegration() {
             <li>Click <strong>Add permissions</strong></li>
           </ol>
 
-          <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Then paste the Application ID and Secret Value into the fields below.</p>
+          <div style={{ margin: '0.75rem 0 0 0', padding: '0.5rem 0.6rem', borderRadius: '6px', background: 'rgba(0,164,239,0.06)', border: '1px solid rgba(0,164,239,0.15)', fontSize: '0.82rem' }}>
+            <strong>Troubleshooting:</strong>
+            <ul style={{ margin: '0.3rem 0 0 1rem', padding: 0, lineHeight: 1.6 }}>
+              <li><strong>"Tenant mismatch"</strong> or sign-in rejected → Go to <strong>Authentication</strong> and verify the account type is set to allow personal accounts (see Step 1).</li>
+              <li><strong>"Access token version" error</strong> when saving account types → You need to set <code>requestedAccessTokenVersion</code> to <code>2</code> in the Manifest first (see Step 2).</li>
+              <li><strong>Changes not taking effect</strong> → Wait 60 seconds after saving settings for Azure to propagate changes.</li>
+            </ul>
+          </div>
+
+          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Then paste the Application ID and Secret Value into the fields below.</p>
         </div>
       )}
 
