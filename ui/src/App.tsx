@@ -1447,6 +1447,8 @@ function GoogleIntegrationSection() {
   const [gmailMsgs, setGmailMsgs] = useState<GmailMsg[]>([]);
   const [gmailSelected, setGmailSelected] = useState<Set<string>>(new Set());
   const [gmailSearching, setGmailSearching] = useState(false);
+  const [gmailPageTokens, setGmailPageTokens] = useState<string[]>([]);  // stack of previous page tokens
+  const [gmailNextToken, setGmailNextToken] = useState<string>('');       // token for the next page
   const [gmailIngesting, setGmailIngesting] = useState(false);
   const [gmailIncludeImages, setGmailIncludeImages] = useState(false);
   const [gmailIngestProgress, setGmailIngestProgress] = useState<{ current: number; total: number; results: { id: string; ok: boolean; subject: string }[] } | null>(null);
@@ -1566,19 +1568,42 @@ function GoogleIntegrationSection() {
     finally { setDriveIngesting(false); }
   };
 
-  // Gmail search
-  const searchGmail = async () => {
+  // Gmail search (with pagination)
+  // gmailPageTokens is a stack: [''] means page 1, ['', 'tok_A'] means page 2, etc.
+  const fetchGmailPage = async (pageToken: string) => {
     if (!activeAccount) return;
     setGmailSearching(true); setMsg(null); setGmailMsgs([]); setGmailSelected(new Set());
+    setExpandedEmail(null); setEmailPreview(null);
     try {
       const res = await axios.post(`${API}/google/gmail/search`, {
         email: activeAccount, query: gmailQuery, from_filter: gmailFrom,
-        subject_filter: gmailSubject, label: gmailLabel, newer_than: gmailNewer, max_results: 30,
+        subject_filter: gmailSubject, label: gmailLabel, newer_than: gmailNewer,
+        max_results: 30, page_token: pageToken,
       });
       setGmailMsgs(res.data.messages || []);
+      setGmailNextToken(res.data.nextPageToken || '');
       if (res.data.messages?.length === 0) setMsg({ ok: true, text: 'No emails found matching your filters.' });
     } catch (err: any) { setMsg({ ok: false, text: err?.response?.data?.detail || 'Gmail search failed' }); }
     finally { setGmailSearching(false); }
+  };
+
+  const searchGmail = () => {
+    setGmailPageTokens(['']);
+    fetchGmailPage('');
+  };
+
+  const gmailNextPage = () => {
+    if (!gmailNextToken) return;
+    setGmailPageTokens(prev => [...prev, gmailNextToken]);
+    fetchGmailPage(gmailNextToken);
+  };
+
+  const gmailPrevPage = () => {
+    if (gmailPageTokens.length <= 1) return;
+    const prevTokens = [...gmailPageTokens];
+    prevTokens.pop();
+    setGmailPageTokens(prevTokens);
+    fetchGmailPage(prevTokens[prevTokens.length - 1]);
   };
 
   const ingestGmailMsgs = async () => {
@@ -2083,6 +2108,29 @@ function GoogleIntegrationSection() {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+              {gmailMsgs.length > 0 && (gmailPageTokens.length > 1 || gmailNextToken) && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button
+                    className="btn"
+                    onClick={gmailPrevPage}
+                    disabled={gmailPageTokens.length <= 1 || gmailSearching}
+                    style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: gmailPageTokens.length <= 1 ? 0.4 : 1 }}
+                  >
+                    ← Prev
+                  </button>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    Page {gmailPageTokens.length}
+                  </span>
+                  <button
+                    className="btn"
+                    onClick={gmailNextPage}
+                    disabled={!gmailNextToken || gmailSearching}
+                    style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem', opacity: !gmailNextToken ? 0.4 : 1 }}
+                  >
+                    Next →
+                  </button>
                 </div>
               )}
               {gmailMsgs.length > 0 && (

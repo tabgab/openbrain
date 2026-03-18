@@ -147,6 +147,7 @@ def google_gmail_search(payload: dict):
         label=payload.get("label", ""),
         newer_than=payload.get("newer_than", "7d"),
         max_results=payload.get("max_results", 25),
+        page_token=payload.get("page_token", ""),
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])

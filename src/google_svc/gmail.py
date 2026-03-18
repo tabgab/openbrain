@@ -35,7 +35,8 @@ def list_gmail_labels(email: str) -> dict:
 
 def search_gmail(email: str, query: str = "", from_filter: str = "",
                  subject_filter: str = "", label: str = "",
-                 newer_than: str = "7d", max_results: int = 25) -> dict:
+                 newer_than: str = "7d", max_results: int = 25,
+                 page_token: str = "") -> dict:
     """
     Search/filter Gmail messages. Returns a preview list (no ingestion).
     
@@ -46,6 +47,7 @@ def search_gmail(email: str, query: str = "", from_filter: str = "",
       label          — Gmail label ID (system like 'INBOX' or custom like 'Label_123')
       newer_than     — e.g. '1d', '7d', '30d', '1y'
       max_results    — how many to return (max 50)
+      page_token     — Gmail API nextPageToken for pagination
     """
     creds = get_credentials_for(email)
     if not creds:
@@ -75,6 +77,8 @@ def search_gmail(email: str, query: str = "", from_filter: str = "",
         params = {"userId": "me", "q": q_str, "maxResults": max_results}
         if label_ids:
             params["labelIds"] = label_ids
+        if page_token:
+            params["pageToken"] = page_token
         results = service.users().messages().list(**params).execute()
     except Exception as e:
         return {"error": f"Gmail API error: {e}"}
@@ -102,7 +106,10 @@ def search_gmail(email: str, query: str = "", from_filter: str = "",
         except Exception:
             continue
 
-    return {"messages": messages, "total": len(messages), "query": q_str}
+    resp = {"messages": messages, "total": len(messages), "query": q_str}
+    if results.get("nextPageToken"):
+        resp["nextPageToken"] = results["nextPageToken"]
+    return resp
 
 
 def ingest_gmail_messages(email: str, message_ids: list[str], include_images: bool = False) -> dict:
