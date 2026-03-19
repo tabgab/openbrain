@@ -24,8 +24,9 @@ Open Brain is a self-hosted system that stores, categorizes, and retrieves your 
 - **Microsoft 365** — OAuth 2.0 connection to OneDrive, Outlook, and Calendar via Microsoft Graph API; search, filter, and selectively ingest files, emails, and events (supports personal and organizational accounts)
 - **Dropbox** — OAuth 2.0 integration; search files by name/type/path and ingest into your brain
 - **pCloud** — OAuth 2.0 integration; browse and filter files, ingest into your brain
+- **MEGA** — End-to-end encrypted cloud storage; sign in with email/password, browse and ingest files
 - **Manual Import** — Import data from end-to-end encrypted or API-less services: Proton Mail/Drive, iCloud Mail/Drive, Tuta Mail, and WhatsApp — export your data, then upload the files
-- **Paginated List Views** — All file and result lists (Google, Microsoft, Dropbox, pCloud) use paginated Prev/Next navigation, matching the Gmail pagination pattern
+- **Paginated List Views** — All file and result lists (Google, Microsoft, Dropbox, pCloud, MEGA) use paginated Prev/Next navigation, matching the Gmail pagination pattern
 - **URL Content Extraction** — Send a URL (X/Twitter post, YouTube video, article, etc.) via Telegram or Dashboard Chat and the actual content is automatically fetched, extracted, and stored as a searchable memory
 - **YouTube Video Summarization** — YouTube links are enriched with the actual video transcript (via captions), summarized by an LLM, and stored with title, channel, summary, and source URL for full searchability
 - **WhatsApp Import** — Import WhatsApp chat exports (.txt files); messages are grouped, categorized, and stored
@@ -352,6 +353,27 @@ Connect your pCloud account to browse and ingest files.
 
 ---
 
+## 📁 MEGA
+
+Connect your MEGA account to browse and ingest files. MEGA is end-to-end encrypted, so there is no OAuth — you sign in with your email and password directly.
+
+### Setup
+
+1. In the dashboard, go to **Ingest → Cloud Storage → MEGA**
+2. Enter your MEGA email and password
+3. Click **Sign In** — your files will be available to browse immediately
+
+### Features
+
+- Browse all files in your MEGA cloud
+- Filter by name and type (documents, spreadsheets, PDFs, images)
+- Client-side pagination (30 items per page)
+- Selective or bulk ingestion
+
+**Note:** Your MEGA credentials are stored locally (server-side only) and used solely to authenticate with MEGA’s servers. If you have two-factor authentication enabled, you may need to use an app-specific password.
+
+---
+
 ## 📧 Manual Import (Proton, iCloud, Tuta, WhatsApp)
 
 Some services are end-to-end encrypted or don't provide third-party API access. For these, export your data manually and upload the files in the **Files** tab.
@@ -482,7 +504,7 @@ The SSE server runs on `http://localhost:3100/sse` when started with `./start-op
 Access at **http://localhost:5173** after starting services.
 
 - **Dashboard** — Browse memories with click-to-expand full content, edit/delete, semantic search, upload documents. Click the Database indicator to see live metrics (total memories, DB size, storage breakdown, source/category stats, timeline)
-- **Ingest** — Two tabs: **Files** (upload documents + manual import from Proton, iCloud, Tuta, WhatsApp) and **Cloud Storage** (Google, Microsoft 365, Dropbox, pCloud — all with OAuth). Already-synced items can be force re-added with a confirmation prompt
+- **Ingest** — Two tabs: **Files** (upload documents + manual import from Proton, iCloud, Tuta, WhatsApp) and **Cloud Storage** (Google, Microsoft 365, Dropbox, pCloud, MEGA). Already-synced items can be force re-added with a confirmation prompt
 - **Chat** — Conversational interface with streaming answers, live thinking process, and search mode toggle (Memory Only / Advanced Search)
 - **Settings** — Configure model roles, API keys, database, Telegram token, voice transcription (STT provider, local Whisper model download, GPU detection), backup & restore
 - **Logs** — Real-time system event log from all services
@@ -526,6 +548,7 @@ openbrain/
 │   │   ├── dropbox.py      #   Dropbox file search & ingestion
 │   │   ├── pcloud.py       #   pCloud file browsing & ingestion
 │   │   ├── email_import.py #   MBOX/EML email import (shared by Proton/iCloud/Tuta)
+│   │   ├── mega.py         #   MEGA file browsing & ingestion
 │   │   └── whatsapp.py     #   WhatsApp chat import
 │   ├── google_svc/         # Google integration service layer
 │   │   ├── auth.py         #   OAuth 2.0, multi-account management
@@ -537,7 +560,8 @@ openbrain/
 │   │   ├── common.py       #   Shared credential & account helpers
 │   │   ├── microsoft_svc.py#   Microsoft Graph: OneDrive, Outlook, Calendar
 │   │   ├── dropbox_svc.py  #   Dropbox OAuth, search, download, ingestion
-│   │   └── pcloud_svc.py   #   pCloud OAuth, list, download, ingestion
+│   │   ├── pcloud_svc.py   #   pCloud OAuth, list, download, ingestion
+│   │   └── mega_svc.py     #   MEGA email/password auth, list, download, ingestion
 │   ├── db.py               # PostgreSQL/pgvector database layer
 │   ├── llm.py              # Multi-model LLM client (roles, embeddings, vision)
 │   ├── ingest.py           # Document ingestion (PDF, images, Word, Excel)
@@ -563,6 +587,7 @@ openbrain/
 │           ├── MicrosoftIntegration.tsx # Microsoft 365 (OneDrive, Outlook, Calendar)
 │           ├── DropboxIntegration.tsx   # Dropbox file search & ingestion
 │           ├── PCloudIntegration.tsx    # pCloud file browsing & ingestion
+│           ├── MegaIntegration.tsx      # MEGA file browsing & ingestion
 │           ├── ProtonImport.tsx         # Proton Mail/Drive manual import
 │           ├── ICloudImport.tsx         # iCloud Mail/Drive manual import
 │           ├── TutaImport.tsx           # Tuta Mail manual import
@@ -677,9 +702,9 @@ python -m pytest tests/ -v
 The backend follows a modular architecture:
 
 - **`api.py`** is a thin entrypoint — app setup, CORS, and `include_router()` calls
-- **`routes/`** package contains 12 domain-specific route modules, each with its own `APIRouter`
+- **`routes/`** package contains 13 domain-specific route modules, each with its own `APIRouter`
 - **`google_svc/`** package splits Google integrations into 5 focused modules (auth, drive, gmail, calendar, photos)
-- **`cloud_svc/`** package handles non-Google cloud integrations (Microsoft Graph, Dropbox, pCloud) with shared credential/account helpers
+- **`cloud_svc/`** package handles non-Google cloud integrations (Microsoft Graph, Dropbox, pCloud, MEGA) with shared credential/account helpers
 - **`event_log.py`** is a shared module for the in-memory event log, avoiding circular imports between `api.py` and route modules
 - No source file exceeds 400 lines (enforced by tests)
 

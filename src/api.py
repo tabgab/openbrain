@@ -46,6 +46,7 @@ from routes.dropbox import router as dropbox_router
 from routes.pcloud import router as pcloud_router
 from routes.microsoft import router as microsoft_router
 from routes.email_import import router as email_import_router
+from routes.mega import router as mega_router
 
 app.include_router(health_router)
 app.include_router(memories_router)
@@ -59,3 +60,4 @@ app.include_router(dropbox_router)
 app.include_router(pcloud_router)
 app.include_router(microsoft_router)
 app.include_router(email_import_router)
+app.include_router(mega_router)

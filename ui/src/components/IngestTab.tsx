@@ -5,6 +5,7 @@ import GoogleIntegrationSection from './GoogleIntegration';
 import MicrosoftIntegration from './MicrosoftIntegration';
 import DropboxIntegration from './DropboxIntegration';
 import PCloudIntegration from './PCloudIntegration';
+import MegaIntegration from './MegaIntegration';
 import ProtonImport from './ProtonImport';
 import ICloudImport from './ICloudImport';
 import TutaImport from './TutaImport';
@@ -68,6 +69,7 @@ export default function IngestTab({ onRefresh }: { onRefresh: () => void }) {
           <MicrosoftIntegration />
           <DropboxIntegration />
           <PCloudIntegration />
+          <MegaIntegration />
         </>
       )}
     </div>
