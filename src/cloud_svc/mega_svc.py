@@ -5,6 +5,7 @@ OAuth flow; users authenticate with their MEGA email and password.
 """
 import datetime
 import io
+import json
 import tempfile
 from typing import Optional
 
@@ -53,12 +54,17 @@ def connect(email: str, password: str) -> dict:
         _sessions[email] = m
         add_event("success", "mega", f"Connected MEGA account: {email}")
         return {"success": True, "email": email}
+    except json.JSONDecodeError:
+        # MEGA returns HTTP 402 with empty body for wrong password
+        return {"error": "Invalid email or password."}
     except Exception as e:
         msg = str(e)
         if "ENOENT" in msg or "-9" in msg:
             return {"error": "Invalid email or password."}
         if "-16" in msg:
             return {"error": "Account temporarily blocked. Try again later."}
+        if "RequestError" in type(e).__name__:
+            return {"error": "Invalid email or password."}
         return {"error": f"MEGA login failed: {msg}"}
 
 
